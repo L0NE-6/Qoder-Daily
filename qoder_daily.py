@@ -164,10 +164,20 @@ def save_store(store):
         log("⚠️ token 存储写入失败: %s" % error)
 
 
+def _remember_store_keys(account):
+    """Keep fingerprints of the configured credentials before restore/rotation."""
+    keys = account.setdefault("_store_keys", [])
+    for token in (account.get("refresh"), account.get("access")):
+        if token:
+            key = token_fp(token)
+            if key not in keys:
+                keys.append(key)
+    return keys
+
+
 def apply_store(account):
     store = load_store()
-    keys = [token_fp(account["refresh"])] if account.get("refresh") else []
-    keys.append(token_fp(account["access"]))
+    keys = _remember_store_keys(account)
     for key in keys:
         saved = store.get(key)
         if not isinstance(saved, dict):
@@ -181,12 +191,17 @@ def apply_store(account):
 
 def persist(account):
     store = load_store()
-    store[token_fp(account.get("refresh") or account["access"])] = {
+    value = {
         "access": account["access"],
         "refresh": account.get("refresh", ""),
         "note": account.get("note", ""),
         "at": int(time.time()),
     }
+    # The next process still starts with the original environment/Secret values.
+    # Update those aliases as well as the current fingerprints, without storing
+    # the original credential strings in the payload.
+    for key in _remember_store_keys(account):
+        store[key] = value
     save_store(store)
 
 
@@ -517,6 +532,7 @@ def refresh_account(account):
     refresh = account.get("refresh", "")
     if not refresh:
         raise RuntimeError("账号没有 refresh_token，无法续期")
+    _remember_store_keys(account)
     path = JOB_REFRESH_PATH if refresh.startswith("jrt-") else DEVICE_REFRESH_PATH
     response = request("POST", account["base"] + path,
                        headers={"User-Agent": "qoder-local-proxy"},
