@@ -33,6 +33,18 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
+      # Credential-bearing state must not enter a public/fork-readable cache.
+      - name: Restore token state (private default branch only)
+        id: token-state
+        if: github.event.repository.private == true && github.ref_name == github.event.repository.default_branch
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            qoder_tokens.json
+            qoder_machine_id
+          key: qoder-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: qoder-state-v1-
+
       - name: Run Qoder Daily
         env:
           QODER_TOKENS: ${{ secrets.QODER_TOKENS }}
@@ -46,4 +58,14 @@ jobs:
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
         run: python qoder_daily.py
+
+      # Refresh may succeed before a later request fails; retain rotated tokens.
+      - name: Save token state (private default branch only)
+        if: always() && steps.token-state.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            qoder_tokens.json
+            qoder_machine_id
+          key: qoder-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
