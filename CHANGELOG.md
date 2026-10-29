@@ -1,5 +1,13 @@
 # 更新日志
 
+## v1.0.11（2026-10-29）
+
+- 修正额度类 403 与凭证失效混判：HTTP 403 响应含 `pricingUrl` 或业务码 `112` 时按「额度耗尽」处理，账号冷却 30 分钟，不再触发 token 续期，也不按登录失败上报。
+- 业务码 `110` / `Billing daily count exceeded` 按「每日计费次数上限」处理，冷却到本地零点，封顶 6 小时（最低 60 秒）。
+- `auth_dead_response` 只在非额度类 401/403 或业务码 `105` / `10019901001` 时判为会话失效；成功活动列表与 claim 路径保持不变。
+- 新增 5 项离线回归测试，覆盖 `112`、`pricingUrl`、`110` 冷却边界、普通 401/403 与额度 403 不触发续期；测试总数 33 项。
+- 实证来源：[shuishuipingan/qoder2api-hub@1033662b](https://github.com/shuishuipingan/qoder2api-hub/commit/1033662b)，对应上游 `v1.7.9`。
+
 ## v1.0.10（2026-10-23）
 
 - 跟进 Qoder CN 活动列表按请求头分桶的下发异常：完整设备头返回 HTTP 200 + `showCampaign:false` / `campaigns:[]` 时，改用 `Authorization`、`Cosy-ClientType`、`User-Agent`、`Content-Type` 四件套复取一次。

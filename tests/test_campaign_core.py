@@ -1,6 +1,10 @@
 import ast
+import json
 import os
+import re
+import time
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -15,6 +19,9 @@ FUNCTIONS = {
 
 
 def load_functions(*names, **globals_):
+    # Legacy cases only exercise the auth path; quota cases load the real classifier.
+    globals_.setdefault("quota_cooldown", lambda response: ("", 0))
+    globals_.setdefault("quota_cooldown_message", lambda kind, seconds: "quota")
     namespace = {"__builtins__": __builtins__, **globals_}
     body = [FUNCTIONS[name] for name in names]
     module = ast.Module(body=body, type_ignores=[])
@@ -598,6 +605,127 @@ class CampaignCoreTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("中国版", message)
         self.assertIn("UMID", message)
+
+    def test_quota_112_and_pricing_url_are_exhausted_not_auth_death(self):
+        module = load_functions(
+            "quota_cooldown", "auth_dead_response",
+            json_of=lambda response: response.payload,
+            json=json, re=re, time=time, datetime=datetime, timedelta=timedelta,
+            QUOTA_112_COOLDOWN=1800,
+            QUOTA_110_MAX_COOLDOWN=21600,
+            QUOTA_110_MIN_COOLDOWN=60,
+        )
+        payloads = (
+            {"code": 112},
+            {"code": "112"},
+            {"data": {"code": "112"}},
+            {"code": 403, "pricingUrl": "https://example.test/pricing"},
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                response = FakeResponse(403, payload)
+                self.assertEqual(
+                    ("exhausted", 1800), module["quota_cooldown"](response))
+                self.assertFalse(module["auth_dead_response"](response))
+
+    def test_quota_110_cooldown_is_bounded_to_six_hours(self):
+        module = load_functions(
+            "quota_cooldown", "auth_dead_response",
+            json_of=lambda response: response.payload,
+            json=json, re=re, time=time, datetime=datetime, timedelta=timedelta,
+            QUOTA_112_COOLDOWN=1800,
+            QUOTA_110_MAX_COOLDOWN=21600,
+            QUOTA_110_MIN_COOLDOWN=60,
+        )
+        cases = (
+            (datetime(2026, 10, 29, 23, 59, 30), 60),
+            (datetime(2026, 10, 29, 12, 0, 0), 21600),
+            (datetime(2026, 10, 29, 20, 0, 0), 14400),
+        )
+        for moment, expected in cases:
+            with self.subTest(moment=moment):
+                response = FakeResponse(
+                    403, {"code": 110, "message": "Billing daily count exceeded"})
+                kind, seconds = module["quota_cooldown"](
+                    response, now=moment.timestamp())
+                self.assertEqual("daily", kind)
+                self.assertEqual(expected, seconds)
+                self.assertLessEqual(seconds, 6 * 3600)
+                self.assertGreaterEqual(seconds, 60)
+                self.assertFalse(module["auth_dead_response"](response))
+
+    def test_generic_401_and_403_still_require_refresh(self):
+        module = load_functions(
+            "quota_cooldown", "auth_dead_response",
+            json_of=lambda response: response.payload,
+            json=json, re=re, time=time, datetime=datetime, timedelta=timedelta,
+            QUOTA_112_COOLDOWN=1800,
+            QUOTA_110_MAX_COOLDOWN=21600,
+            QUOTA_110_MIN_COOLDOWN=60,
+        )
+        for status in (401, 403):
+            with self.subTest(status=status):
+                response = FakeResponse(status, {"message": "token expired"})
+                self.assertEqual(("", 0), module["quota_cooldown"](response))
+                self.assertTrue(module["auth_dead_response"](response))
+
+    def test_quota_403_does_not_trigger_token_refresh(self):
+        calls = {"request": 0, "refresh": 0}
+
+        def request(method, url, headers=None, retries=3):
+            calls["request"] += 1
+            return FakeResponse(403, {"code": 112, "pricingUrl": "/pricing"})
+
+        def refresh(account):
+            calls["refresh"] += 1
+            return True
+
+        module = load_functions(
+            "fetch_campaigns", "_fetch_campaigns_once", "auth_dead_response",
+            "campaign_response_is_empty", "minimal_sash_headers", "first_text",
+            "quota_cooldown", "region_key",
+            CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
+            SASH_CLIENT_TYPE="10",
+            SASH_USER_AGENT="Qoder",
+            risky_sash_headers=lambda account, uid="": ({}, None),
+            request=request,
+            refresh_account=refresh,
+            json_of=lambda response: response.payload,
+            json=json, re=re, time=time, datetime=datetime, timedelta=timedelta,
+            QUOTA_112_COOLDOWN=1800,
+            QUOTA_110_MAX_COOLDOWN=21600,
+            QUOTA_110_MIN_COOLDOWN=60,
+        )
+        response, _note = module["fetch_campaigns"]({
+            "region": "global",
+            "base": "https://example.test",
+            "access": "dt-current",
+            "refresh": "drt-current",
+        })
+        self.assertEqual(403, response.status_code)
+        self.assertEqual(1, calls["request"])
+        self.assertEqual(0, calls["refresh"])
+
+    def test_campaign_rows_report_quota_without_login_failure(self):
+        module = load_functions(
+            "fetch_campaign_rows", "auth_dead_response", "first_text",
+            "quota_cooldown", "quota_cooldown_message",
+            fetch_campaigns=lambda account: (
+                FakeResponse(403, {"code": 112, "pricingUrl": "/pricing"}), None),
+            json_of=lambda response: response.payload,
+            campaign_rows_from_payload=lambda payload: [],
+            json=json, re=re, time=time, datetime=datetime, timedelta=timedelta,
+            QUOTA_112_COOLDOWN=1800,
+            QUOTA_110_MAX_COOLDOWN=21600,
+            QUOTA_110_MIN_COOLDOWN=60,
+        )
+        rows, _response, _risk_note, error = module["fetch_campaign_rows"](
+            {"region": "global"})
+        self.assertEqual([], rows)
+        self.assertIn("额度", error)
+        self.assertIn("30 分钟", error)
+        self.assertNotIn("凭证", error)
+        self.assertNotIn("重新登录", error)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@
 - 🌍 **双地区设备身份**：中国版使用 Qoder CN 的 `runtime-info` / `qoderclicn`（UMID 环境 0），国际版使用 Qoder 的 `runtime-info` / `qodercli`（环境 3）；中国版完整设备头返回空活动列表时，会用最小鉴权四件套复取一次，国际版不做该降级
 - 🕙 **开窗补拉**：活动窗口每天 10:00（UTC+8）开启，未开不落已签、后续轮次自动补领
 - 🔐 **Token 自动续期**：refresh_token 轮换后自动落盘，长期无人值守
+- 🚦 **额度 403 分流**：`112` / `pricingUrl` 按额度耗尽冷却 30 分钟，`110` 按每日计费上限冷却到本地零点（封顶 6 小时），不误判为登录失效
 - 👥 **多账号**：环境变量换行或 `&` 分隔，逐账号容错
 - 📢 **多渠道推送**：PushPlus / Bark / 企业微信 / 钉钉 / 青龙通知
 - 🐧 **青龙 & Actions**：单文件运行，也支持 GitHub Actions 定时
@@ -154,6 +155,7 @@ python qoder_login.py --region global # 国际版（Token 填 QODER_GLOBAL_TOKEN
 - **中国版 / 国际版都能签到吗？** 可以：两个地区都要求对应官方设备身份。中国版读 Qoder CN / `qoderclicn` 并使用 UMID 环境 0；国际版读 Qoder / `qodercli` 并使用环境 3。脚本会按地区隔离客户端、CLI 缓存和提取目录；都没有时如实提示「未领取」，不会记成已签。
 - **中国版完整设备头返回空活动列表怎么办？** 脚本只在成功响应明确为空或 `showCampaign:false` 时，用 `Authorization` / `Cosy-ClientType` / `User-Agent` / `Content-Type` 最小头复取一次；仍为空则保留原响应，鉴权、限流和服务端错误会照常报告。国际版不启用该复取。
 - **Pro +1800 还会有吗？** 官方已不再常规投放。脚本只在 campaigns 里实际发现 Pro/upgrade 行，或 `/reward` 只读核实到至少 1000 Credits 后才领取；不会请求不存在的 `pro-upgrade` 端点，也不会承诺固定 +1800。
+- **HTTP 403 / 业务码 112 是登录失效吗？** 不是。`112` 或响应带 `pricingUrl` 表示额度耗尽，账号冷却 30 分钟；`110` / `Billing daily count exceeded` 表示每日计费次数上限，冷却到本地零点（封顶 6 小时）。只有普通 401/403 或 `105` / `10019901001` 才走续期。
 
 ## 📁 目录结构
 
@@ -171,6 +173,7 @@ Qoder-Daily/
 
 ## 📦 版本与发布
 
+- 当前版本：`v1.0.11`（2026-10-29）。
 - 每次更新单独发一个 Release：`v1.0.0` → `v1.0.1` …，历史版本保留可下载。
 - 每个 Release 附带：完整包 zip + 各脚本单文件 + `SHA256SUMS.txt`。
 - 下载页：<https://github.com/L0NE-6/Qoder-Daily/releases>
