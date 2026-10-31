@@ -39,7 +39,7 @@
    WECOM_WEBHOOK   企微群机器人地址或 key（可选）
    DINGTALK_WEBHOOK  钉钉机器人 webhook（可选）
    DINGTALK_SECRET   钉钉加签密钥（可选）
-   QODER_WINDOW_RETRY  【可选】10:00-10:30 CST 内暂未下发时按 90 秒重试（默认 1）
+QODER_WINDOW_RETRY  【可选】10:00-11:00 CST 内暂未下发时按 10 分钟重试（默认 1）
 
 ⌨️ 命令
    python qoder_daily.py                 正常签到
@@ -857,7 +857,8 @@ def daily_window_retry_enabled():
 
 def daily_window_active():
     now = datetime.now(CN_TZ)
-    return now.hour == 10 and now.minute < 30
+    # 官方窗口 10:00 开启；上游可能延迟到 11:00 前才下发，重试窗口同步放宽到 1 小时。
+    return now.hour == 10
 
 
 def fetch_campaign_rows(account):
@@ -915,13 +916,13 @@ def do_checkin(account):
     if (target is None and not claimed and daily_window_retry_enabled()
             and daily_window_active()):
         try:
-            max_attempts = min(16, max(1, int(_env("QODER_WINDOW_RETRY_MAX") or "16")))
+            max_attempts = min(6, max(1, int(_env("QODER_WINDOW_RETRY_MAX") or "6")))
         except ValueError:
-            max_attempts = 16
+            max_attempts = 6
         try:
-            gap = max(1, int(_env("QODER_WINDOW_RETRY_GAP") or "90"))
+            gap = max(1, int(_env("QODER_WINDOW_RETRY_GAP") or "600"))
         except ValueError:
-            gap = 90
+            gap = 600
         for _attempt in range(max_attempts):
             if not daily_window_active():
                 break

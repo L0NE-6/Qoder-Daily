@@ -65,14 +65,14 @@
 5 10 * * * task qoder_daily.py
 ```
 
-> 建议同时配置 `QODER_WINDOW_RETRY=1`，让 10:00-10:30 的活动行延迟由脚本自动补拉。
+> 建议同时配置 `QODER_WINDOW_RETRY=1`，让 10:00-11:00 的活动行延迟由脚本自动补拉。
 
 ## ☁️ 部署方式二：GitHub Actions（可选，默认手动触发）
 
 1. Fork 本仓库（或直接使用本仓库，Secrets 只能配在你自己的仓库里）。
 2. 打开 **Settings → Secrets and variables → Actions**，添加下表里的 Secrets。
 3. 打开 **Actions** 标签页，选择 `Qoder Daily`，点 **Run workflow** 手动跑一次验证。
-4. 默认只支持**手动触发**（上游仓库不跑定时，避免空跑）；fork 后想定时，把 `.github/workflows/daily.yml` 里 `schedule:` 两行取消注释。模板已改为北京时间 10:05（UTC `5 2 * * *`），并启用 10:00-10:30 开窗延迟重试。
+4. 默认只支持**手动触发**（上游仓库不跑定时，避免空跑）；fork 后想定时，把 `.github/workflows/daily.yml` 里 `schedule:` 两行取消注释。模板已改为北京时间 10:05（UTC `5 2 * * *`），并启用 10:00-11:00 开窗延迟重试。
 
 | Secret | 对应环境变量 | 必填 |
 |---|---|---|
@@ -119,8 +119,8 @@ python qoder_login.py --region global # 国际版（Token 填 QODER_GLOBAL_TOKEN
 | `QODER_MACHINE_TOKEN` / `QODER_MACHINE_CODE` / `QODER_MACHINE_TYPE` | 三件套 | 设备风控身份，中国版 / 国际版均可使用（与组件二选一） |
 | `QODERCN_RUNTIME_INFO` / `QODER_RUNTIME_INFO` | `runtime-info` 路径 | 分别指定中国版 / 国际版官方组件；地区隔离，互不混用 |
 | `QODER_UMID_PATH` / `QODER_UMID_NO_INSTALL` | `runtime-info` 路径 / `1` | 指定通用 UMID 组件；或禁止自动从对应地区官方包提取 |
-| `QODER_WINDOW_RETRY` | `1` / `0` | 10:00-10:30 CST 内暂未下发活动行时按 90 秒重试，默认开启 |
-| `QODER_WINDOW_RETRY_MAX` / `QODER_WINDOW_RETRY_GAP` | 次数 / 秒 | 默认最多 16 次、间隔 90 秒 |
+| `QODER_WINDOW_RETRY` | `1` / `0` | 10:00-11:00 CST 内暂未下发活动行时按 10 分钟重试，默认开启 |
+| `QODER_WINDOW_RETRY_MAX` / `QODER_WINDOW_RETRY_GAP` | 次数 / 秒 | 默认最多 6 次、间隔 600 秒 |
 
 ## ⌨️ 命令行参数
 
@@ -173,7 +173,7 @@ Qoder-Daily/
 
 ## 📦 版本与发布
 
-- 当前版本：`v1.0.11`（2026-10-29）。
+- 当前版本：`v1.0.12`（2026-10-31）。
 - 每次更新单独发一个 Release：`v1.0.0` → `v1.0.1` …，历史版本保留可下载。
 - 每个 Release 附带：完整包 zip + 各脚本单文件 + `SHA256SUMS.txt`。
 - 下载页：<https://github.com/L0NE-6/Qoder-Daily/releases>

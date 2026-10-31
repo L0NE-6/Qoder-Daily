@@ -472,8 +472,8 @@ class CampaignCoreTests(unittest.TestCase):
         module = load_functions(
             "daily_window_active", datetime=FakeDateTime, CN_TZ=object())
         for hour, minute, expected in (
-                (9, 59, False), (10, 0, True), (10, 29, True),
-                (10, 30, False), (11, 0, False)):
+                (9, 59, False), (10, 0, True), (10, 30, True),
+                (10, 59, True), (11, 0, False)):
             FakeDateTime.current = type("Now", (), {"hour": hour, "minute": minute})()
             self.assertEqual(expected, module["daily_window_active"]())
 
