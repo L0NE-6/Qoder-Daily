@@ -117,6 +117,10 @@ workflow는 `qoder_tokens.json`과 `qoder_machine_id`를 묶고 `QODER_CACHE_KEY
 
 토큰과 기기 ID는 환경 변수 또는 Secrets로 공급합니다. `qoder_tokens.json`, `qoder_machine_id`, 복호화된 cache 상태, 인증 헤더는 민감합니다. 토큰 파일 커밋, 암호화되지 않은 artifact 업로드, Issue에 전체 토큰 게시, 공개 로그의 cache key 노출을 피하세요.
 
+## 사용 범위 및 재배포 안내
+
+공식 저장소, 스크립트, 배포 안내, Release는 무료로 공개됩니다. 저자의 명시적 서면 허가 없이 이 프로젝트를 유료 자료, 유료 배포, 업데이트 대행으로 포장하거나, 출처와 저작자 표시를 삭제하고 원작자로 가장하거나, 저자의 신원, 이름, 아바타, 결제 QR 코드를 사용해 공식 승인으로 오인하게 하는 행위를 금지합니다. 관련 없는 계정, 그룹, 채널, 유료 플랫폼에 옮겨 팔로워 증가, 트래픽 유도, 재판매를 하는 행위도 금지됩니다. 위반 시 게시 중단 요청을 받을 수 있으며 저자는 업데이트 중단, 저장소 보관 또는 삭제를 결정할 수 있습니다. 전체 규칙은 [NOTICE.md](../NOTICE.md)를 확인하세요.
+
 ## 링크
 
 - [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)

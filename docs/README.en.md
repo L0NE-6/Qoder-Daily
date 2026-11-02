@@ -117,6 +117,10 @@ A campaign must be present and claim successfully before the account is reported
 
 Tokens and device identifiers are supplied through environment variables or Secrets. `qoder_tokens.json`, `qoder_machine_id`, decrypted cache state, and authorization headers are sensitive. Do not commit token files, upload unencrypted artifacts, paste a complete token into an Issue, or expose the cache key in public logs.
 
+## Usage and redistribution
+
+The official repository, scripts, deployment instructions, and releases are and remain free. Without explicit written permission, do not package this project as a paid resource, paid deployment service, or paid update service; do not remove attribution and claim the work as original; do not impersonate the author; and do not use the author's identity, name, avatar, or payment QR codes to imply official endorsement. Do not repost the project through unrelated accounts, groups, channels, or paid platforms for follower growth, traffic diversion, or resale. Violations may lead to a takedown request, and the author may pause updates or archive or delete the repository. Read the full [NOTICE.md](../NOTICE.md).
+
 ## Links
 
 - [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)

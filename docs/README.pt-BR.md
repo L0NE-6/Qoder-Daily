@@ -117,6 +117,10 @@ A conta só é reportada como concluída quando a campanha aparece e o claim é 
 
 Tokens e identificadores de dispositivo vêm de variáveis de ambiente ou Secrets. `qoder_tokens.json`, `qoder_machine_id`, o cache descriptografado e cabeçalhos de autorização são sensíveis. Não faça commit de arquivos de token, não envie artifacts sem criptografia, não cole um token completo em uma Issue e não exponha a chave de cache em logs públicos.
 
+## Limites de uso e redistribuição
+
+O repositório oficial, os scripts, as instruções de implantação e as Releases permanecem gratuitos e públicos. Sem autorização escrita explícita do autor, não empacote este projeto como recurso pago, serviço de implantação paga ou serviço de atualização paga; não remova a atribuição para alegar autoria original; não se passe pelo autor; e não use a identidade, o nome, o avatar ou os QR codes de pagamento do autor para sugerir endosso oficial. Também não republique o projeto em contas, grupos, canais ou plataformas pagas sem relação com ele para ganhar seguidores, desviar tráfego ou revender. Em caso de violação, o autor pode solicitar a remoção e pode pausar atualizações, arquivar ou excluir o repositório. Consulte as regras completas em [NOTICE.md](../NOTICE.md).
+
 ## Links
 
 - [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)
