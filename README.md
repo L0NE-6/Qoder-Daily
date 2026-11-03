@@ -306,7 +306,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前版本：`v1.0.12`（2026-10-31）。
+- 当前发布版：`v1.0.13`（2026-11-04，文档发行版；脚本逻辑仍为 `v1.0.12`）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。
