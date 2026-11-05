@@ -4,8 +4,8 @@ on:
   # 上游仓库默认不跑定时，避免空跑。
   # fork 后想启用定时：把下面两行取消注释（cron 用 UTC，北京时间 = UTC+8）。
   # 北京时间 每天 10:05（活动 10:00 开窗）
-  # schedule:
-  #   - cron: "5 2 * * *"
+ schedule:
+  - cron: "5 2 * * *"
   workflow_dispatch:
 
 permissions:
