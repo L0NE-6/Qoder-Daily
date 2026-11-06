@@ -14,7 +14,7 @@ O `qoder_login.py` usa o fluxo oficial de autorização de dispositivo. Depois d
 
 ## Recursos principais
 
-- Coleta campanhas `CLAIM_BENEFIT` nas contas China e Global.
+- Coleta apenas campanhas classificadas como Credits diários; benefícios limitados a modelos, Sonus e SOTA são excluídos.
 - Separa a identidade Qoder CN / `qoderclicn` da identidade Qoder / `qodercli`.
 - Tenta novamente entre 10:00 e 11:00 no horário de Pequim.
 - Rotaciona refresh tokens e restaura o estado entre execuções.

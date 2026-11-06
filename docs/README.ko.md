@@ -14,7 +14,7 @@ Qoder Daily는 현재 제공되는 혜택 캠페인을 읽고 Qoder 중국판과
 
 ## 핵심 기능
 
-- 중국판과 글로벌판의 `CLAIM_BENEFIT` 캠페인을 수령합니다.
+- 일일 Credits로 분류된 캠페인만 수령하며 모델 한정, Sonus, SOTA 혜택은 제외합니다.
 - Qoder CN / `qoderclicn`과 Qoder / `qodercli` 기기 ID를 분리합니다.
 - 베이징 시간 10:00-11:00 캠페인 창에서 재시도합니다.
 - refresh token을 교체하고 실행 간 상태를 복원합니다.

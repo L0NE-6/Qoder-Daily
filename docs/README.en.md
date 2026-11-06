@@ -14,7 +14,7 @@ The companion `qoder_login.py` uses the official device authorization flow. Conf
 
 ## Core capabilities
 
-- Claims `CLAIM_BENEFIT` campaigns for China and Global accounts.
+- Claims only campaigns classified as daily Credits; model-scoped, Sonus and SOTA benefits are excluded.
 - Separates Qoder CN / `qoderclicn` identity from Qoder / `qodercli` identity.
 - Retries during the 10:00-11:00 Beijing time campaign window.
 - Rotates refresh tokens and restores state across runs.

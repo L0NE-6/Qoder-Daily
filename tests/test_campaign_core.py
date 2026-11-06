@@ -531,7 +531,9 @@ class CampaignCoreTests(unittest.TestCase):
         module = load_functions(
             "first_text", "amount_of", "campaign_benefit",
             "campaign_looks_like_pro_upgrade", "campaign_id_of",
+            "campaign_scope_is_limited", "campaign_title",
             "discover_pro_campaign",
+            re=re,
             fetch_campaign_reward=lambda account, campaign_id: (
                 {"kind": "CREDITS", "amount": 1800}
                 if campaign_id == "hidden-pro" else
@@ -542,22 +544,133 @@ class CampaignCoreTests(unittest.TestCase):
         self.assertIsNone(claimed)
         self.assertTrue(any("hidden-pro" in item for item in probes))
 
-    def test_daily_pick_excludes_pro_row_and_accepts_empty_action_type(self):
+    def test_daily_pick_requires_semantic_daily_campaign(self):
         rows = [
             {"campaignId": "pro", "campaignKey": "pro-upgrade",
              "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
              "benefit": {"kind": "CREDITS", "amount": 1800}},
-            {"campaignId": "daily", "campaignKey": "act-daily",
+            {"campaignId": "legacy-empty-action", "campaignKey": "act-old",
              "actionType": "", "claimStatus": "CLAIMABLE",
+             "title": "每日签到",
              "benefit": {"kind": "CREDITS", "amount": 100}},
+            {"campaignId": "daily", "campaignKey": "act-daily",
+             "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+             "title": "每日签到",
+             "benefit": {
+                 "kind": "CREDITS", "amount": 100,
+                 "modelScope": {"modelSeries": {"key": "ALL_MODELS"}},
+             }},
         ]
         module = load_functions(
             "first_text", "amount_of", "campaign_benefit",
-            "campaign_looks_like_pro_upgrade", "pick_daily_campaign",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "pick_daily_campaign",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
         )
         target, claimed = module["pick_daily_campaign"](rows)
         self.assertEqual("daily", target["campaignId"])
         self.assertFalse(claimed)
+
+    def test_campaign_daily_classification_matrix(self):
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit", "campaign_title",
+            "campaign_time_ms", "campaign_scope_is_limited", "campaign_is_daily",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"),
+        )
+
+        def row(**overrides):
+            value = {
+                "campaignId": "daily",
+                "actionType": "CLAIM_BENEFIT",
+                "title": "每日签到",
+                "benefit": {
+                    "kind": "CREDITS",
+                    "amount": 100,
+                    "validity": {"days": 30},
+                    "modelScope": {"modelSeries": {"key": "ALL_MODELS"}},
+                },
+            }
+            value.update(overrides)
+            return value
+
+        scoped = row()
+        scoped["benefit"] = {
+            "kind": "CREDITS",
+            "amount": 100,
+            "validity": {"days": 30},
+            "modelScope": {"modelSeries": {"key": "SONUS"}},
+        }
+        empty_scope = row()
+        empty_scope["benefit"] = {
+            "kind": "CREDITS", "amount": 100,
+            "validity": {"days": 30}, "modelScope": {},
+        }
+        non_credit = row()
+        non_credit["benefit"] = {
+            "kind": "POINTS", "amount": 100,
+            "validity": {"days": 30},
+        }
+        start = 1_790_000_000
+        legacy = row(title="", startAt=start, endAt=start + 86_400)
+        too_long = row(title="", startAt=start, endAt=start + 86_401)
+        wrong_amount = row(title="", startAt=start, endAt=start + 86_400)
+        wrong_amount["benefit"] = {
+            "kind": "CREDITS", "amount": 101,
+            "validity": {"days": 30},
+        }
+        wrong_days = row(title="", startAt=start, endAt=start + 86_400)
+        wrong_days["benefit"] = {
+            "kind": "CREDITS", "amount": 100,
+            "validity": {"days": 29},
+        }
+        placement = row(title="")
+        placement["placements"] = [{
+            "type": "POPUP",
+            "content": {"zh": {"title": "每日签到"}, "en": {"title": "Daily"}},
+        }]
+
+        cases = [
+            ("zh_daily", row(), True),
+            ("en_daily", row(title="Daily check-in"), True),
+            ("every_day", row(title="Every Day"), True),
+            ("placement", placement, True),
+            ("sonus", row(title="Sonus daily"), False),
+            ("sota", row(title="SOTA daily"), False),
+            ("scoped", scoped, False),
+            ("empty_scope", empty_scope, True),
+            ("non_credit", non_credit, False),
+            ("wrong_action", row(actionType=""), False),
+            ("empty_id", row(campaignId="  "), False),
+            ("legacy", legacy, True),
+            ("too_long", too_long, False),
+            ("wrong_amount", wrong_amount, False),
+            ("wrong_days", wrong_days, False),
+            ("not_daily_high_amount", row(title="限时福利", benefit={
+                "kind": "CREDITS", "amount": 1800,
+                "validity": {"days": 30},
+            }), False),
+            ("substring_risk", row(title="Not daily"), True),
+        ]
+        for name, value, expected in cases:
+            with self.subTest(name=name):
+                self.assertEqual(expected, module["campaign_is_daily"](value))
+
+    def test_campaign_rows_require_unique_nonempty_ids(self):
+        module = load_functions("validate_campaign_rows")
+        self.assertEqual("", module["validate_campaign_rows"]([
+            {"campaignId": "one"}, {"campaignId": "two"},
+        ]))
+        self.assertIn("格式异常", module["validate_campaign_rows"]([
+            {"campaignId": "one"}, {"title": "missing"},
+        ]))
+        self.assertIn("格式异常", module["validate_campaign_rows"]([
+            {"campaignId": "one"}, "not-an-object",
+        ]))
+        self.assertIn("重复", module["validate_campaign_rows"]([
+            {"campaignId": "one"}, {"campaignId": "one"},
+        ]))
 
     def test_global_skips_pro_without_request(self):
         def unexpected(*args, **kwargs):
@@ -623,6 +736,7 @@ class CampaignCoreTests(unittest.TestCase):
         daily = {
             "campaignId": "daily-1", "campaignKey": "act-daily",
             "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+            "title": "每日签到",
             "benefit": {"kind": "CREDITS", "amount": 100},
         }
         responses = [[], [daily]]
@@ -637,15 +751,21 @@ class CampaignCoreTests(unittest.TestCase):
 
         module = load_functions(
             "first_text", "amount_of", "campaign_benefit",
-            "campaign_looks_like_pro_upgrade", "campaign_id_of",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "campaign_id_of",
             "pick_daily_campaign", "do_checkin",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"),
             fetch_campaign_rows=fetch_rows,
             daily_window_retry_enabled=lambda: True,
             daily_window_active=lambda: True,
             _env=lambda name: {"QODER_WINDOW_RETRY_MAX": "2",
                                "QODER_WINDOW_RETRY_GAP": "1"}.get(name, ""),
             log=lambda message: None,
-            time=type("Time", (), {"sleep": staticmethod(sleep)}),
+            time=type("Time", (), {
+                "sleep": staticmethod(sleep),
+                "time": staticmethod(time.time),
+            }),
             claim_campaign=lambda account, campaign_id: FakeResponse(
                 200, {"status": "CLAIMED"}),
             claim_response_verdict=lambda response: ("claimed", 100, "领取成功"),

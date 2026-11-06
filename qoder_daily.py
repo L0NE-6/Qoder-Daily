@@ -6,7 +6,7 @@
 📌 功能
    Qoder 每日签到（活动领取制，中国版 / 国际版）：
    1. GET  /sash/api/v1/me/campaigns  拉活动列表（官方客户端不发送 forceRefresh）
-   2. 找 actionType=CLAIM_BENEFIT 且 claimStatus=CLAIMABLE 的活动
+   2. 按 CLAIM_BENEFIT / CREDITS / 标题 / modelScope 识别唯一的每日签到活动
    3. POST /sash/api/v1/me/campaigns/{campaignId}/claim  领取 credits
    4. 已领取（CLAIMED / replayed / 409 ALREADY_CLAIMED）识别为今日已领，不算失败
     5. Pro 升级包：从 campaigns 中发现，GET /reward 只读核实面值后再 claim
@@ -55,6 +55,7 @@ import hashlib
 import hmac
 import io
 import json
+import math
 import os
 import platform
 import re
@@ -89,6 +90,7 @@ SASH_CLIENT_TYPE = "10"
 SASH_USER_AGENT = "Qoder"
 STORE_FILE = os.path.join(SCRIPT_DIR, "qoder_tokens.json")
 CN_TZ = timezone(timedelta(hours=8))
+ONE_DAY_MS = 24 * 60 * 60 * 1000
 CLAIM_FAILURE_TEXT = {
     "REDEMPTION_CODE_OUT_OF_STOCK": "今日名额已发完，等待下一轮",
     "SAME_PERSON_ALREADY_CLAIMED": "同一设备身份下的其他账号已领取",
@@ -800,10 +802,118 @@ def campaign_benefit(row):
     return first_text(benefit.get("kind")).upper(), amount_of(benefit.get("amount"))
 
 
+def campaign_title(row):
+    parts = []
+    placements = row.get("placements") if isinstance(row, dict) else None
+    for locale in ("zh", "en"):
+        text = ""
+        if isinstance(placements, list):
+            for kind in ("POPUP", "USAGE"):
+                for item in placements:
+                    if not isinstance(item, dict) or item.get("type") != kind:
+                        continue
+                    content = item.get("content")
+                    localized = content.get(locale) if isinstance(content, dict) else None
+                    value = localized.get("title") if isinstance(localized, dict) else None
+                    if isinstance(value, str) and value.strip():
+                        text = value.strip()
+                        break
+                if text:
+                    break
+        parts.append(text or first_text(row.get("title") if isinstance(row, dict) else ""))
+    return " ".join(parts).lower()
+
+
+def campaign_time_ms(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=CN_TZ)
+            return int(parsed.timestamp() * 1000)
+    else:
+        return None
+    if not math.isfinite(number) or number <= 0:
+        return None
+    return int(number * 1000) if number < 100_000_000_000 else int(number)
+
+
+def campaign_scope_is_limited(row):
+    benefit = row.get("benefit") if isinstance(row, dict) else None
+    scope = benefit.get("modelScope") if isinstance(benefit, dict) else None
+    series = scope.get("modelSeries") if isinstance(scope, dict) else None
+    if isinstance(series, dict) and series.get("key") == "ALL_MODELS":
+        return False
+    if scope is None:
+        return False
+    if isinstance(scope, dict) and not scope:
+        return False
+    return True
+
+
+def campaign_is_daily(row):
+    if not isinstance(row, dict):
+        return False
+    benefit = row.get("benefit")
+    campaign_id = row.get("campaignId")
+    if not (
+        row.get("actionType") == "CLAIM_BENEFIT"
+        and isinstance(benefit, dict)
+        and benefit.get("kind") == "CREDITS"
+        and isinstance(campaign_id, str)
+        and campaign_id.strip()
+    ):
+        return False
+    title = campaign_title(row)
+    if campaign_scope_is_limited(row) or "sonus" in title or "sota" in title:
+        return False
+    if any(word in title for word in ("每日", "每天", "daily", "every day")):
+        return True
+    start = campaign_time_ms(row.get("startAt"))
+    end = campaign_time_ms(row.get("endAt"))
+    validity = benefit.get("validity")
+    return (
+        start is not None
+        and end is not None
+        and start < end <= start + ONE_DAY_MS
+        and amount_of(benefit.get("amount")) == 100.0
+        and isinstance(validity, dict)
+        and amount_of(validity.get("days")) == 30.0
+    )
+
+
+def campaign_is_active(row, now=None):
+    current = time.time() * 1000 if now is None else float(now)
+    start = campaign_time_ms(row.get("startAt")) if isinstance(row, dict) else None
+    end = campaign_time_ms(row.get("endAt")) if isinstance(row, dict) else None
+    if start is not None and start > current:
+        return False
+    if end is not None and end <= current:
+        return False
+    return True
+
+
 def campaign_looks_like_pro_upgrade(row):
-    for key in ("campaignKey", "actionType", "title", "name", "campaignName"):
+    if campaign_scope_is_limited(row):
+        return False
+    title = campaign_title(row)
+    if "sonus" in title or "sota" in title:
+        return False
+    for key in ("campaignKey", "title", "name", "campaignName"):
         value = str(row.get(key) or "").lower()
-        if "pro" in value or "upgrade" in value:
+        if "upgrade" in value or re.search(r"(^|[\s_-])pro($|[\s_-])", value):
             return True
     kind, amount = campaign_benefit(row)
     return kind == "CREDITS" and amount >= 1000
@@ -906,6 +1016,19 @@ def daily_window_active():
     return now.hour == 10
 
 
+def validate_campaign_rows(rows):
+    ids = set()
+    for row in rows:
+        campaign_id = row.get("campaignId") if isinstance(row, dict) else None
+        if not isinstance(campaign_id, str) or not campaign_id.strip():
+            return "活动清单格式异常，未确认领取状态"
+        campaign_id = campaign_id.strip()
+        if campaign_id in ids:
+            return "活动清单存在重复 campaignId，未确认领取状态"
+        ids.add(campaign_id)
+    return ""
+
+
 def fetch_campaign_rows(account):
     response, risk_note = fetch_campaigns(account)
     quota_kind, quota_seconds = quota_cooldown(response)
@@ -922,7 +1045,11 @@ def fetch_campaign_rows(account):
         return [], response, risk_note, "签到活动查询失败（HTTP 429），请稍后重试"
     if response.status_code != 200:
         return [], response, risk_note, "活动列表返回 HTTP %s" % response.status_code
-    return campaign_rows_from_payload(json_of(response)), response, risk_note, ""
+    rows = campaign_rows_from_payload(json_of(response))
+    error = validate_campaign_rows(rows)
+    if error:
+        return [], response, risk_note, error
+    return rows, response, risk_note, ""
 
 
 def pick_daily_campaign(rows):
@@ -931,10 +1058,7 @@ def pick_daily_campaign(rows):
     for row in rows:
         if not isinstance(row, dict):
             continue
-        action_type = first_text(row.get("actionType")).upper()
-        if action_type not in ("", "CLAIM_BENEFIT"):
-            continue
-        if campaign_looks_like_pro_upgrade(row):
+        if not campaign_is_daily(row) or not campaign_is_active(row):
             continue
         status = first_text(row.get("claimStatus")).upper()
         if status == "CLAIMABLE" and target is None:
@@ -1045,6 +1169,11 @@ def discover_pro_campaign(account, rows):
         if len(probes) >= 5:
             break
         if not isinstance(row, dict) or first_text(row.get("claimStatus")).upper() != "CLAIMABLE":
+            continue
+        if campaign_scope_is_limited(row):
+            continue
+        title = campaign_title(row)
+        if "sonus" in title or "sota" in title:
             continue
         campaign_id = campaign_id_of(row)
         if not campaign_id:
