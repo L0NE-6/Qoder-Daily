@@ -39,7 +39,7 @@ class FakeResponse:
 
 
 class CampaignCoreTests(unittest.TestCase):
-    def test_campaigns_url_has_no_force_refresh_query(self):
+    def test_campaigns_url_keeps_official_cache_behavior(self):
         captured = {}
 
         def request(method, url, headers=None, retries=3):
@@ -66,6 +66,139 @@ class CampaignCoreTests(unittest.TestCase):
             captured["url"],
         )
         self.assertNotIn("forceRefresh", captured["url"])
+
+    def test_global_discovers_uid_then_refetches_with_risk_headers(self):
+        calls = []
+        risk_uids = []
+        first = FakeResponse(200, {
+            "uid": "uid-from-campaigns",
+            "campaigns": [{"actionType": "VIEW_DETAILS", "claimStatus": "CLAIMABLE"}],
+        })
+        second = FakeResponse(200, {
+            "uid": "uid-from-campaigns",
+            "campaigns": [{"actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE"}],
+        })
+
+        def request(method, url, headers=None, retries=3):
+            calls.append(headers)
+            return first if len(calls) == 1 else second
+
+        def risky_headers(account, uid=""):
+            risk_uids.append(uid)
+            return {
+                "authorization": "Bearer dt-current",
+                "Cosy-MachineToken": "machine-token",
+            }, None
+
+        module = load_functions(
+            "fetch_campaigns", "_fetch_campaigns_once", "auth_dead_response",
+            "campaign_response_is_empty", "minimal_sash_headers", "first_text",
+            "region_key", "campaign_uid_from_payload",
+            CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
+            SASH_CLIENT_TYPE="10",
+            SASH_USER_AGENT="Qoder",
+            sash_headers=lambda token: {"authorization": "Bearer %s" % token},
+            risky_sash_headers=risky_headers,
+            request=request,
+            refresh_account=lambda account: None,
+            json_of=lambda response: response.payload,
+        )
+        account = {
+            "region": "global",
+            "base": "https://example.test",
+            "access": "dt-current",
+            "refresh": "drt-current",
+            "uid": "configured-stale",
+        }
+        response, note = module["fetch_campaigns"](account)
+
+        self.assertIs(second, response)
+        self.assertIsNone(note)
+        self.assertEqual("uid-from-campaigns", account["uid"])
+        self.assertEqual(["uid-from-campaigns"], risk_uids)
+        self.assertEqual(2, len(calls))
+        self.assertNotIn("Cosy-MachineToken", calls[0])
+        self.assertEqual("machine-token", calls[1]["Cosy-MachineToken"])
+
+    def test_global_refresh_repeats_uid_discovery_sequence(self):
+        calls = []
+        responses = [
+            FakeResponse(401, {"code": 401}),
+            FakeResponse(200, {
+                "uid": "uid-after-refresh",
+                "campaigns": [],
+            }),
+            FakeResponse(200, {
+                "uid": "uid-after-refresh",
+                "campaigns": [{"actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED"}],
+            }),
+        ]
+        refreshes = {"count": 0}
+
+        def request(method, url, headers=None, retries=3):
+            calls.append(headers)
+            return responses.pop(0)
+
+        def refresh(account):
+            refreshes["count"] += 1
+
+        module = load_functions(
+            "fetch_campaigns", "_fetch_campaigns_once", "auth_dead_response",
+            "campaign_response_is_empty", "minimal_sash_headers", "first_text",
+            "region_key", "campaign_uid_from_payload",
+            CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
+            SASH_CLIENT_TYPE="10",
+            SASH_USER_AGENT="Qoder",
+            sash_headers=lambda token: {"authorization": "Bearer %s" % token},
+            risky_sash_headers=lambda account, uid="": (
+                {"authorization": "Bearer dt-current", "uid-header": uid}, None),
+            request=request,
+            refresh_account=refresh,
+            json_of=lambda response: response.payload,
+        )
+        account = {
+            "region": "global",
+            "base": "https://example.test",
+            "access": "dt-current",
+            "refresh": "drt-current",
+        }
+        response, _note = module["fetch_campaigns"](account)
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(1, refreshes["count"])
+        self.assertEqual(3, len(calls))
+        self.assertEqual("uid-after-refresh", calls[2]["uid-header"])
+
+    def test_global_empty_uid_does_not_generate_unbound_risk_identity(self):
+        module = load_functions(
+            "risk_identity", "first_text", "region_key",
+            RISK_CACHE={},
+            _env=lambda name: "",
+            find_umid_component=lambda region: self.fail(
+                "UID-less global accounts must not invoke UMID"),
+        )
+        values, note = module["risk_identity"]("global", "")
+        self.assertIsNone(values)
+        self.assertIn("UID", note)
+
+    def test_global_manual_risk_env_does_not_require_uid(self):
+        values = {
+            "QODER_MACHINE_TOKEN": "manual-token",
+            "QODER_MACHINE_CODE": "manual-code",
+            "QODER_MACHINE_TYPE": "manual-type",
+        }
+        module = load_functions(
+            "risk_identity", "first_text", "region_key",
+            RISK_CACHE={},
+            RISK_TTL=3000,
+            time=time,
+            _env=lambda name: values.get(name, ""),
+            find_umid_component=lambda region: self.fail(
+                "Manual risk credentials must not invoke UMID"),
+        )
+        identity, note = module["risk_identity"]("global", "")
+        self.assertEqual("manual-token", identity["machineToken"])
+        self.assertIsNone(note)
 
     def test_business_code_105_forces_refresh_and_one_retry(self):
         calls = {"request": 0, "refresh": 0}
@@ -189,7 +322,7 @@ class CampaignCoreTests(unittest.TestCase):
 
     def test_empty_campaign_fallback_is_limited_to_cn(self):
         cases = [
-            ("global", {"campaigns": []}, 1),
+            ("global", {"uid": "uid-current", "campaigns": []}, 2),
             ("cn", {"campaigns": [{"campaignId": "daily"}]}, 1),
         ]
         for region, payload, expected_calls in cases:
@@ -204,10 +337,11 @@ class CampaignCoreTests(unittest.TestCase):
                     "fetch_campaigns", "_fetch_campaigns_once",
                     "auth_dead_response",
                     "campaign_response_is_empty",
-                    "minimal_sash_headers", "first_text",
+                    "minimal_sash_headers", "first_text", "campaign_uid_from_payload",
                     CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
                     SASH_CLIENT_TYPE="10",
                     SASH_USER_AGENT="Qoder",
+                    sash_headers=lambda token: {"authorization": "Bearer %s" % token},
                     risky_sash_headers=lambda account, uid="": (
                         {"authorization": "Bearer dt-current"}, None),
                     request=request,
@@ -537,6 +671,7 @@ class CampaignCoreTests(unittest.TestCase):
                 "QODER_RUNTIME_INFO": "/intl/runtime-info",
             }.get(name, ""),
             UMID_RUNTIME_ENV={"cn": 0, "global": 3},
+            UMID_CLI_RUNTIME_ENV={"cn": 0, "global": 4},
             UMID_OVERRIDE_ENV={
                 "cn": "QODERCN_RUNTIME_INFO",
                 "global": "QODER_RUNTIME_INFO",
@@ -552,6 +687,45 @@ class CampaignCoreTests(unittest.TestCase):
             ("/intl/runtime-info", 3, "env"),
             module["find_umid_component"]("global"),
         )
+
+    def test_global_cli_and_data_components_use_singapore_env(self):
+        fake_os = type("FakeOS", (), {
+            "path": type("FakePath", (), {
+                "isfile": staticmethod(
+                    lambda path: path.endswith("runtime-info")),
+                "isdir": staticmethod(
+                    lambda path: path.endswith("umid-linux")),
+                "join": staticmethod(os.path.join),
+            })(),
+            "listdir": staticmethod(lambda path: ["umid-linux"]),
+        })()
+        fake_sys = type("FakeSys", (), {"platform": "linux"})()
+        module = load_functions(
+            "region_key", "find_umid_component",
+            _env=lambda name: "",
+            os=fake_os,
+            sys=fake_sys,
+            UMID_RUNTIME_ENV={"cn": 0, "global": 3},
+            UMID_CLI_RUNTIME_ENV={"cn": 0, "global": 4},
+            UMID_OVERRIDE_ENV={
+                "cn": "QODERCN_RUNTIME_INFO",
+                "global": "QODER_RUNTIME_INFO",
+            },
+            resource_dirs=lambda region, names: [],
+            region_names=lambda region: (region,),
+            cli_runtime_cache_dirs=lambda region: ["/home/test/.qoder"],
+            umid_directory=lambda region: "/data/qoder-umid/global",
+        )
+        cli = module["find_umid_component"]("global")
+        self.assertEqual(4, cli[1])
+        self.assertEqual("cli", cli[2])
+        self.assertTrue(cli[0].endswith("runtime-info"))
+
+        module["cli_runtime_cache_dirs"] = lambda region: []
+        data = module["find_umid_component"]("global")
+        self.assertEqual(4, data[1])
+        self.assertEqual("data", data[2])
+        self.assertTrue(data[0].endswith("runtime-info"))
 
     def test_cli_runtime_cache_dirs_do_not_mix_regions(self):
         module = load_functions(
@@ -683,10 +857,11 @@ class CampaignCoreTests(unittest.TestCase):
         module = load_functions(
             "fetch_campaigns", "_fetch_campaigns_once", "auth_dead_response",
             "campaign_response_is_empty", "minimal_sash_headers", "first_text",
-            "quota_cooldown", "region_key",
+            "campaign_uid_from_payload", "quota_cooldown", "region_key",
             CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
             SASH_CLIENT_TYPE="10",
             SASH_USER_AGENT="Qoder",
+            sash_headers=lambda token: {"authorization": "Bearer %s" % token},
             risky_sash_headers=lambda account, uid="": ({}, None),
             request=request,
             refresh_account=refresh,

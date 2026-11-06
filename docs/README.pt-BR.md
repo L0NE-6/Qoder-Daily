@@ -87,7 +87,7 @@ O workflow arquiva `qoder_tokens.json` e `qoder_machine_id`, criptografa o pacot
 | Variável | Formato ou padrão | Descrição |
 | :--- | :--- | :--- |
 | `QODER_TOKENS` | `access` / `access\|refresh` / `observação\|access\|refresh` | Contas China |
-| `QODER_GLOBAL_TOKENS` | mesmo formato, com `\|uid` opcional | Contas Global |
+| `QODER_GLOBAL_TOKENS` | mesmo formato, com `\|uid` opcional | Contas Global. O UID pode ser omitido; o script lê o valor da lista de campanhas. |
 | `QODER_MACHINE_TOKEN` / `QODER_MACHINE_CODE` / `QODER_MACHINE_TYPE` | três valores | Identidade manual do dispositivo |
 | `QODERCN_RUNTIME_INFO` | caminho | Componente runtime-info China |
 | `QODER_RUNTIME_INFO` | caminho | Componente runtime-info Global |

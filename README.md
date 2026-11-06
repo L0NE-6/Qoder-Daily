@@ -52,7 +52,8 @@
 ## ✨ 核心能力
 
 - **双地区签到**：中国版请求 Qoder CN，国际版请求 `openapi.qoder.sh`。
-- **地区隔离设备身份**：中国版读取 Qoder CN / `qoderclicn`，国际版读取 Qoder / `qodercli`。
+- **地区隔离设备身份**：中国版读取 Qoder CN / `qoderclicn`，国际版读取 Qoder / `qodercli`；客户端组件使用环境 `3`，CLI / 下载组件使用环境 `4`。
+- **国际版 UID 两段拉取**：先无风控头读取活动列表 UID，再生成对应 UMID 身份并二次拉取。
 - **开窗补拉**：默认在北京时间 10:00-11:00 内每 10 分钟检查，最多 6 次。
 - **Token 轮换恢复**：refresh_token 轮换后写入本地状态；Actions 可再用 `QODER_CACHE_KEY` 加密缓存。
 - **额度类 403 分流**：区分额度耗尽、每日计费上限和真实登录失效。
@@ -181,7 +182,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 | 变量 | 单条格式 | 说明 |
 | :--- | :--- | :--- |
 | `QODER_TOKENS` | `access` / `access\|refresh` / `备注\|access\|refresh` | 中国版账号，换行或 `&` 分隔。 |
-| `QODER_GLOBAL_TOKENS` | 同上，可追加 `\|uid` | 国际版账号，格式 `备注\|access\|refresh\|uid`。 |
+| `QODER_GLOBAL_TOKENS` | 同上，可追加 `\|uid` | 国际版账号，格式 `备注\|access\|refresh\|uid`；UID 可省略，脚本会从活动列表自动读取。 |
 
 `|` 用于条目内部字段，备注里不要再写 `|`。
 
@@ -306,7 +307,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前发布版：`v1.0.13`（2026-11-04，文档发行版；脚本逻辑仍为 `v1.0.12`）。
+- 当前发布版：`v1.0.14`（2026-11-06，国际版 UID 与 UMID 两段拉取修复）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。

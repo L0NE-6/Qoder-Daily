@@ -87,7 +87,7 @@ The workflow archives `qoder_tokens.json` and `qoder_machine_id`, encrypts the a
 | Variable | Format or default | Description |
 | :--- | :--- | :--- |
 | `QODER_TOKENS` | `access` / `access\|refresh` / `remark\|access\|refresh` | China accounts |
-| `QODER_GLOBAL_TOKENS` | same, optionally `remark\|access\|refresh\|uid` | Global accounts |
+| `QODER_GLOBAL_TOKENS` | same, optionally `remark\|access\|refresh\|uid` | Global accounts. The UID may be omitted; the script reads it from the campaign list. |
 | `QODER_MACHINE_TOKEN` / `QODER_MACHINE_CODE` / `QODER_MACHINE_TYPE` | three values | Manual device identity |
 | `QODERCN_RUNTIME_INFO` | path | China runtime-info component |
 | `QODER_RUNTIME_INFO` | path | Global runtime-info component |

@@ -14,8 +14,9 @@
    中国版和国际版（每日 100 Credits）的活动只下发给带对应官方设备身份的请求
    （Cosy-MachineToken / Cosy-MachineCode / Cosy-MachineType，由本机 UMID
    组件生成）。中国版使用 Qoder CN 的 runtime-info / qoderclicn 与 UMID 环境 0，
-   国际版使用 Qoder 的 runtime-info / qodercli 与 UMID 环境 3。脚本会按地区
-   查找组件；Linux 容器里找不到时会从对应官方 npm 包提取（sha512 校验，可用
+   国际版客户端组件使用 UMID 环境 3，qodercli / 下载组件使用环境 4。脚本先
+   无风控头读取活动列表顶层 uid，再用该 uid 生成身份并二次拉取；随后按地区
+   查找组件，Linux 容器里找不到时会从对应官方 npm 包提取（sha512 校验，可用
    QODER_UMID_NO_INSTALL=1 关闭）。
    中国版活动列表若在完整设备头下返回 HTTP 200 空表，会按上游实测形态改用
    最小鉴权四件套复取一次；国际版不做该降级。
@@ -231,7 +232,7 @@ def persist(account):
 UMID_DIR = os.path.join(SCRIPT_DIR, "qoder_umid")
 MACHINE_ID_FILE = os.path.join(SCRIPT_DIR, "qoder_machine_id")
 RISK_TTL = 50 * 60
-DEFAULT_CLIENT_VERSION = "1.1.69"
+DEFAULT_CLIENT_VERSION = "1.1.83"
 NPM_PACKAGES = ("https://registry.npmmirror.com", "https://registry.npmjs.org")
 NPM_AUTHORITY = "https://registry.npmjs.org"
 NPM_PACKAGE_PATHS = {
@@ -239,6 +240,7 @@ NPM_PACKAGE_PATHS = {
     "global": "@qoder-ai%2fqodercli",
 }
 UMID_RUNTIME_ENV = {"cn": 0, "global": 3}
+UMID_CLI_RUNTIME_ENV = {"cn": 0, "global": 4}
 UMID_OVERRIDE_ENV = {"cn": "QODERCN_RUNTIME_INFO", "global": "QODER_RUNTIME_INFO"}
 RISK_CACHE = {}
 
@@ -372,6 +374,7 @@ def find_umid_component(region):
     key = region_key(region)
     exe_name = "runtime-info.exe" if sys.platform.startswith("win") else "runtime-info"
     runtime_env = UMID_RUNTIME_ENV[key]
+    cli_runtime_env = UMID_CLI_RUNTIME_ENV[key]
     custom = _env(UMID_OVERRIDE_ENV[key]) or _env("QODER_UMID_PATH")
     if custom and os.path.isfile(custom):
         return custom, runtime_env, "env"
@@ -394,10 +397,10 @@ def find_umid_component(region):
             else:
                 continue
             if os.path.isfile(path):
-                return path, runtime_env, "cli"
+                return path, cli_runtime_env, "cli"
     data = os.path.join(umid_directory(key), exe_name)
     if os.path.isfile(data):
-        return data, runtime_env, "data"
+        return data, cli_runtime_env, "data"
     return None
 
 
@@ -554,6 +557,8 @@ def risk_identity(region, uid):
             return values, None
         return None, ("设备风控环境变量不完整（需要 QODER_MACHINE_TOKEN / "
                       "QODER_MACHINE_CODE / QODER_MACHINE_TYPE 三件套）")
+    if region == "global" and not first_text(uid):
+        return None, "活动列表没有返回账号 UID，无法生成国际版设备身份"
     component = find_umid_component(region)
     if component is None and not _env("QODER_UMID_NO_INSTALL"):
         try:
@@ -700,6 +705,21 @@ def campaign_response_is_empty(response):
     return False
 
 
+def campaign_uid_from_payload(payload):
+    """读取活动列表顶层的账号 uid，用于生成国际版设备风控身份。"""
+    if not isinstance(payload, dict):
+        return ""
+    bodies = [payload]
+    data = payload.get("data")
+    if isinstance(data, dict):
+        bodies.append(data)
+    for body in bodies:
+        uid = first_text(body.get("uid"), body.get("userId"), body.get("user_id"))
+        if uid:
+            return uid
+    return ""
+
+
 def _fetch_campaigns_once(account, headers):
     response = request("GET", account["base"] + CAMPAIGNS_PATH,
                        headers=headers)
@@ -717,6 +737,31 @@ def _fetch_campaigns_once(account, headers):
 
 
 def fetch_campaigns(account):
+    if region_key(account.get("region", "cn")) == "global":
+        response = None
+        for attempt in range(2):
+            # 国际版的 UMID 身份按账号 UID 生成；UID 又只在无风控头的
+            # 首次活动列表响应顶层出现。顺序必须与官方客户端一致。
+            response = _fetch_campaigns_once(account, sash_headers(account["access"]))
+            if auth_dead_response(response) and account.get("refresh") and attempt == 0:
+                refresh_account(account)
+                continue
+            if response.status_code != 200 or auth_dead_response(response):
+                return response, None
+
+            uid = campaign_uid_from_payload(json_of(response)) or first_text(account.get("uid"))
+            if uid:
+                account["uid"] = uid
+            headers, risk_note = risky_sash_headers(account, uid)
+            if not uid:
+                return response, risk_note
+            response = _fetch_campaigns_once(account, headers)
+            if auth_dead_response(response) and account.get("refresh") and attempt == 0:
+                refresh_account(account)
+                continue
+            return response, risk_note
+        return response, None
+
     headers, risk_note = risky_sash_headers(account, account.get("uid", ""))
     response = _fetch_campaigns_once(account, headers)
     if auth_dead_response(response) and account.get("refresh"):
@@ -891,7 +936,7 @@ def pick_daily_campaign(rows):
             continue
         if campaign_looks_like_pro_upgrade(row):
             continue
-        status = row.get("claimStatus")
+        status = first_text(row.get("claimStatus")).upper()
         if status == "CLAIMABLE" and target is None:
             target = row
         elif status == "CLAIMED":

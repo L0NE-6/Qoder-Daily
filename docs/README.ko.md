@@ -87,7 +87,7 @@ workflow는 `qoder_tokens.json`과 `qoder_machine_id`를 묶고 `QODER_CACHE_KEY
 | 변수 | 형식 또는 기본값 | 설명 |
 | :--- | :--- | :--- |
 | `QODER_TOKENS` | `access` / `access\|refresh` / `메모\|access\|refresh` | 중국판 계정 |
-| `QODER_GLOBAL_TOKENS` | 같은 형식, 선택적으로 `\|uid` 추가 | 글로벌판 계정 |
+| `QODER_GLOBAL_TOKENS` | 같은 형식, 선택적으로 `\|uid` 추가 | 글로벌판 계정. UID는 생략할 수 있으며 스크립트가 캠페인 목록에서 자동으로 읽습니다. |
 | `QODER_MACHINE_TOKEN` / `QODER_MACHINE_CODE` / `QODER_MACHINE_TYPE` | 세 값 | 수동 기기 ID |
 | `QODERCN_RUNTIME_INFO` | 경로 | 중국판 runtime-info |
 | `QODER_RUNTIME_INFO` | 경로 | 글로벌판 runtime-info |

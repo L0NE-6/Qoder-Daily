@@ -87,7 +87,7 @@ schedule:
 | 變數 | 格式或預設 | 說明 |
 | :--- | :--- | :--- |
 | `QODER_TOKENS` | `access` / `access\|refresh` / `備註\|access\|refresh` | 中國版帳號 |
-| `QODER_GLOBAL_TOKENS` | 同上，可再追加 `\|uid` | 國際版帳號 |
+| `QODER_GLOBAL_TOKENS` | 同上，可再追加 `\|uid` | 國際版帳號；UID 可省略，腳本會從活動列表自動讀取。 |
 | `QODER_MACHINE_TOKEN` / `QODER_MACHINE_CODE` / `QODER_MACHINE_TYPE` | 三個值 | 手動裝置身份 |
 | `QODERCN_RUNTIME_INFO` | 路徑 | 中國版 runtime-info 元件 |
 | `QODER_RUNTIME_INFO` | 路徑 | 國際版 runtime-info 元件 |
