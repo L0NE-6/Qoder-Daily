@@ -520,6 +520,38 @@ class CampaignCoreTests(unittest.TestCase):
                 FakeResponse(status, payload))
             self.assertEqual(expected, verdict, payload)
 
+    def test_claim_campaign_uses_minimal_headers_and_empty_body(self):
+        captured = {}
+
+        def request(method, url, headers=None, body=None, **_kwargs):
+            captured.update({
+                "method": method, "url": url, "headers": headers, "body": body,
+            })
+            return FakeResponse()
+
+        module = load_functions(
+            "claim_campaign", "minimal_sash_headers",
+            CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
+            SASH_CLIENT_TYPE="qoder", SASH_USER_AGENT="test-agent",
+            request=request,
+        )
+        module["claim_campaign"](
+            {"base": "https://example.test", "access": "access-token"}, "daily-1")
+
+        self.assertEqual("POST", captured["method"])
+        self.assertEqual(
+            "https://example.test/sash/api/v1/me/campaigns/daily-1/claim",
+            captured["url"])
+        self.assertIsNone(captured["body"])
+        self.assertEqual(
+            {
+                "authorization": "Bearer access-token",
+                "cosy-clienttype": "qoder",
+                "user-agent": "test-agent",
+                "content-type": "application/json",
+            },
+            captured["headers"])
+
     def test_discover_pro_uses_hidden_reward_probe(self):
         rows = [
             {"campaignId": "daily", "campaignKey": "act-daily",
@@ -546,6 +578,10 @@ class CampaignCoreTests(unittest.TestCase):
 
     def test_daily_pick_requires_semantic_daily_campaign(self):
         rows = [
+            {"campaignId": "claimed-daily", "campaignKey": "act-daily",
+             "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
+             "title": "每日签到",
+             "benefit": {"kind": "CREDITS", "amount": 100}},
             {"campaignId": "pro", "campaignKey": "pro-upgrade",
              "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
              "benefit": {"kind": "CREDITS", "amount": 1800}},
@@ -571,6 +607,122 @@ class CampaignCoreTests(unittest.TestCase):
         target, claimed = module["pick_daily_campaign"](rows)
         self.assertEqual("daily", target["campaignId"])
         self.assertFalse(claimed)
+
+    def test_daily_pick_returns_active_claimed_row_for_replay(self):
+        now = time.time()
+        rows = [{
+            "campaignId": "batch-daily",
+            "campaignKey": "act-batch-daily",
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": "CLAIMED",
+            "title": "每日签到",
+            "benefit": {"kind": "CREDITS", "amount": 100},
+            "startAt": now - 60,
+            "endAt": now + 60,
+        }]
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "pick_daily_campaign",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
+        )
+        target, claimed = module["pick_daily_campaign"](rows)
+        self.assertEqual("batch-daily", target["campaignId"])
+        self.assertTrue(claimed)
+
+    def test_daily_pick_ignores_expired_claimed_row(self):
+        now = time.time()
+        rows = [{
+            "campaignId": "expired-daily",
+            "campaignKey": "act-expired-daily",
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": "CLAIMED",
+            "title": "每日签到",
+            "benefit": {"kind": "CREDITS", "amount": 100},
+            "startAt": now - 120,
+            "endAt": now - 60,
+        }]
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "pick_daily_campaign",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
+        )
+        target, claimed = module["pick_daily_campaign"](rows)
+        self.assertIsNone(target)
+        self.assertFalse(claimed)
+
+    def test_daily_claimed_row_is_resubmitted_and_replay_is_neutral(self):
+        row = {
+            "campaignId": "batch-daily",
+            "campaignKey": "act-batch-daily",
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": "CLAIMED",
+            "title": "每日签到",
+            "benefit": {"kind": "CREDITS", "amount": 100},
+        }
+        calls = []
+
+        def claim(account, campaign_id):
+            calls.append(campaign_id)
+            return FakeResponse(200, {"status": "CLAIMED", "replayed": True})
+
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "campaign_id_of",
+            "pick_daily_campaign", "claim_response_verdict", "do_checkin",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
+            CLAIM_FAILURE_TEXT={},
+            fetch_campaign_rows=lambda account: (
+                [row], FakeResponse(), None, ""),
+            daily_window_retry_enabled=lambda: False,
+            daily_window_active=lambda: False,
+            claim_campaign=claim,
+            json_of=lambda response: response.payload,
+        )
+        ok, message = module["do_checkin"]({"region": "cn"})
+        self.assertFalse(ok)
+        self.assertEqual("今日已领取", message)
+        self.assertEqual(["batch-daily"], calls)
+
+    def test_daily_claimed_row_replay_false_reports_new_claim(self):
+        row = {
+            "campaignId": "batch-daily",
+            "campaignKey": "act-batch-daily",
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": "CLAIMED",
+            "title": "每日签到",
+            "benefit": {"kind": "CREDITS", "amount": 100},
+        }
+        calls = []
+
+        def claim(account, campaign_id):
+            calls.append(campaign_id)
+            return FakeResponse(200, {"status": "CLAIMED", "replayed": False})
+
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "campaign_id_of",
+            "pick_daily_campaign", "claim_response_verdict", "do_checkin",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
+            CLAIM_FAILURE_TEXT={},
+            fetch_campaign_rows=lambda account: (
+                [row], FakeResponse(), None, ""),
+            daily_window_retry_enabled=lambda: False,
+            daily_window_active=lambda: False,
+            claim_campaign=claim,
+            json_of=lambda response: response.payload,
+        )
+        ok, message = module["do_checkin"]({"region": "cn"})
+        self.assertTrue(ok)
+        self.assertIn("100", message)
+        self.assertEqual(["batch-daily"], calls)
 
     def test_campaign_daily_classification_matrix(self):
         module = load_functions(

@@ -8,8 +8,9 @@
    1. GET  /sash/api/v1/me/campaigns  拉活动列表（官方客户端不发送 forceRefresh）
    2. 按 CLAIM_BENEFIT / CREDITS / 标题 / modelScope 识别唯一的每日签到活动
    3. POST /sash/api/v1/me/campaigns/{campaignId}/claim  领取 credits
-   4. 已领取（CLAIMED / replayed / 409 ALREADY_CLAIMED）识别为今日已领，不算失败
-    5. Pro 升级包：从 campaigns 中发现，GET /reward 只读核实面值后再 claim
+   4. 活跃每日行的 CLAIMED 只作候选；幂等重发 claim，由 replayed 区分已领与本次真领
+   5. claim 使用最小鉴权头和空 body，避免完整设备头触发 503 风控
+   6. Pro 升级包：从 campaigns 中发现，GET /reward 只读核实面值后再 claim
 
    中国版和国际版（每日 100 Credits）的活动只下发给带对应官方设备身份的请求
    （Cosy-MachineToken / Cosy-MachineCode / Cosy-MachineType，由本机 UMID
@@ -1054,7 +1055,7 @@ def fetch_campaign_rows(account):
 
 def pick_daily_campaign(rows):
     target = None
-    claimed = False
+    claimed_target = None
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -1063,17 +1064,19 @@ def pick_daily_campaign(rows):
         status = first_text(row.get("claimStatus")).upper()
         if status == "CLAIMABLE" and target is None:
             target = row
-        elif status == "CLAIMED":
-            claimed = True
-    return target, claimed
+        elif status == "CLAIMED" and claimed_target is None:
+            claimed_target = row
+    if target is not None:
+        return target, False
+    # campaignId 可能覆盖多日；批次内旧 CLAIMED 不能直接判今日已领。
+    # 保留该行并重发一次幂等 claim，由服务端 replayed 字段裁决。
+    return claimed_target, claimed_target is not None
 
 
 def claim_campaign(account, campaign_id):
-    headers, _note = risky_sash_headers(account, account.get("uid", ""))
-    headers["content-type"] = "application/json"
-    headers["origin"] = account["base"]
+    headers = minimal_sash_headers(account["access"])
     return request("POST", "%s%s/%s/claim" % (account["base"], CAMPAIGNS_PATH, campaign_id),
-                   headers=headers, body={})
+                   headers=headers, body=None)
 
 
 def do_checkin(account):

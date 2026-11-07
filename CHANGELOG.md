@@ -1,5 +1,14 @@
 # 更新日志
 
+## v1.0.16（2026-11-07）
+
+- 修复批次级 `campaignId` 跨日复用时，旧 `CLAIMED` 行被误判为“今日已领取”而漏领的问题。
+- 每日活动同时存在 `CLAIMABLE` 与 `CLAIMED` 行时优先领取 `CLAIMABLE`；只有候选均已领取时才对活动窗口内的代表性 `CLAIMED` 行重发一次幂等 claim。
+- `replayed=true` 继续按今日已领取处理；`replayed=false` + 新 `CLAIMED` 按本次真实领取成功处理。
+- claim 请求对齐上游最小鉴权头与空 body，移除完整设备头和 JSON `{}`，避免 `RISK_DEPENDENCY_UNAVAILABLE` 形态拦截。
+- 活动窗口外或非每日行的 `CLAIMED` 不参与复核；失败、409、BLOCKED 与未知响应不冒充已领。
+- 新增 claimed 候选、过期行、回放、真领和最小请求形态回归；全套 `45` 项测试通过。
+
 ## v1.0.15（2026-11-07）
 
 - 每日签到改为语义分类：必须同时满足 `actionType=CLAIM_BENEFIT`、`benefit.kind=CREDITS` 和非空 `campaignId`。

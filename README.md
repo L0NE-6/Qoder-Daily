@@ -308,7 +308,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前发布版：`v1.0.15`（2026-11-07，每日活动语义分类与清单预检）。
+- 当前发布版：`v1.0.16`（2026-11-07，修复批次 CLAIMED 误判并复核幂等 claim）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。
