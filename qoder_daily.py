@@ -63,6 +63,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -129,7 +130,7 @@ def split_accounts(raw):
     return out
 
 
-def request(method, url, headers=None, body=None, timeout=20, retries=3):
+def request(method, url, headers=None, body=None, timeout=20, retries=3, form=None):
     last = None
     for attempt in range(retries):
         try:
@@ -138,7 +139,8 @@ def request(method, url, headers=None, body=None, timeout=20, retries=3):
             return session.request(
                 method, url,
                 headers=headers or {},
-                json=body if body is not None else None,
+                json=body if body is not None and form is None else None,
+                data=form,
                 timeout=timeout, verify=False,
             )
         except Exception as error:
@@ -153,6 +155,20 @@ def json_of(response):
         return response.json()
     except Exception:
         return {}
+
+
+def response_text(response):
+    """Return a bounded response body for media-type diagnostics."""
+    try:
+        text = response.text
+    except Exception:
+        text = ""
+    if text:
+        return str(text)[:2000]
+    payload = json_of(response)
+    if payload:
+        return json.dumps(payload, ensure_ascii=False)[:2000]
+    return ""
 
 
 def first_text(*values):
@@ -180,11 +196,23 @@ def load_store():
 
 
 def save_store(store):
+    """Atomically replace the token store and surface write failures."""
+    directory = os.path.dirname(os.path.abspath(STORE_FILE))
+    os.makedirs(directory, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=".qoder-store-", suffix=".tmp", dir=directory)
     try:
-        with open(STORE_FILE, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(store, handle, ensure_ascii=False, indent=2)
-    except Exception as error:
-        log("⚠️ token 存储写入失败: %s" % error)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, STORE_FILE)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def _remember_store_keys(account):
@@ -625,11 +653,30 @@ def refresh_account(account):
         raise RuntimeError("账号没有 refresh_token，无法续期")
     _remember_store_keys(account)
     path = JOB_REFRESH_PATH if refresh.startswith("jrt-") else DEVICE_REFRESH_PATH
+    json_headers = {
+        "User-Agent": "qoder-local-proxy",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
     response = request("POST", account["base"] + path,
-                       headers={"User-Agent": "qoder-local-proxy"},
+                       headers=json_headers,
                        body={"refresh_token": refresh})
+    if refresh.startswith("drt-") and refresh_media_type_rejected(response):
+        log("   🔄 续期媒体类型不被接受，改用 form 再试一次")
+        response = request(
+            "POST", account["base"] + path,
+            headers={
+                "User-Agent": "qoder-local-proxy",
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            form={"refresh_token": refresh},
+        )
     if response.status_code in (401, 403):
         raise RuntimeError("刷新令牌已失效或与地区不符，请重新登录")
+    if response.status_code >= 400:
+        raise RuntimeError("刷新令牌失败: HTTP %s %s" % (
+            response.status_code, response_text(response)[:160]))
     payload = json_of(response)
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     token = first_text(data.get("device_token"), data.get("deviceToken"),
@@ -637,11 +684,35 @@ def refresh_account(account):
     if not token:
         raise RuntimeError("续期响应缺少 access token（HTTP %s）" % response.status_code)
     new_refresh = first_text(data.get("refresh_token"), data.get("refreshToken")) or refresh
+    old_access = account.get("access", "")
     account["access"] = token
     account["refresh"] = new_refresh
-    persist(account)
+    try:
+        persist(account)
+    except Exception as error:
+        account["access"] = old_access
+        account["refresh"] = refresh
+        raise RuntimeError(
+            "token 已续期但状态写入失败，未报告刷新成功: %s" % error)
     log("   🔄 token 已续期并保存")
     return True
+
+
+def refresh_media_type_rejected(response):
+    """Detect direct 415 and wrapped HTTP 400 code=415 media errors."""
+    if response.status_code == 415:
+        return True
+    if response.status_code != 400:
+        return False
+    text = response_text(response).lower().replace(" ", "")
+    return (
+        "unsupportedmediatype" in text
+        and (
+            "code=415" in text
+            or '"code":415' in text
+            or '"code":"415"' in text
+        )
+    )
 
 
 def quota_cooldown(response, now=None):

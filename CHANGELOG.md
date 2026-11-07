@@ -1,5 +1,14 @@
 # 更新日志
 
+## v1.0.17（2026-11-07）
+
+- `drt-` 设备令牌续期增加媒体类型兼容：JSON 遇到 HTTP 415，或 HTTP 400 包装 `code=415 / Unsupported Media Type` 时，只改用 `application/x-www-form-urlencoded` 重试一次。
+- 普通 HTTP 400、401/403、第二次仍失败和其他 4xx/5xx 不切换编码，也不覆盖本地 token。
+- `jrt-` 与 PAT exchange 不启用未经验证的 form 形态，保持原协议。
+- token 状态改为临时文件写入、`fsync`、`os.replace` 原子替换；写盘失败不再被吞掉或误报“续期成功”。
+- 续期成功但状态持久化失败时回滚内存中的 access / refresh，并明确报告失败。
+- 新增直接 415、包装 400 code=415、普通 400、jrt 不重试、持久化失败与原子替换回归；全套 `51` 项测试通过。
+
 ## v1.0.16（2026-11-07）
 
 - 修复批次级 `campaignId` 跨日复用时，旧 `CLAIMED` 行被误判为“今日已领取”而漏领的问题。
