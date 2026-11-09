@@ -681,6 +681,7 @@ class CampaignCoreTests(unittest.TestCase):
                 [row], FakeResponse(), None, ""),
             daily_window_retry_enabled=lambda: False,
             daily_window_active=lambda: False,
+            daily_before_reset=lambda: False,
             claim_campaign=claim,
             json_of=lambda response: response.payload,
         )
@@ -723,6 +724,55 @@ class CampaignCoreTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("100", message)
         self.assertEqual(["batch-daily"], calls)
+
+    def test_daily_replay_before_ten_is_not_reported_as_today_claimed(self):
+        row = {
+            "campaignId": "previous-instance",
+            "campaignKey": "act-previous-instance",
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": "CLAIMED",
+            "title": "每日签到",
+            "benefit": {"kind": "CREDITS", "amount": 100},
+        }
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "campaign_id_of",
+            "pick_daily_campaign", "claim_response_verdict", "do_checkin",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
+            CLAIM_FAILURE_TEXT={},
+            fetch_campaign_rows=lambda account: (
+                [row], FakeResponse(), None, ""),
+            daily_window_retry_enabled=lambda: False,
+            daily_window_active=lambda: False,
+            daily_before_reset=lambda: True,
+            claim_campaign=lambda account, campaign_id: FakeResponse(
+                200, {"status": "CLAIMED", "replayed": True}),
+            json_of=lambda response: response.payload,
+        )
+        ok, message = module["do_checkin"]({"region": "cn"})
+        self.assertFalse(ok)
+        self.assertIn("10:00", message)
+        self.assertIn("10:05", message)
+        self.assertNotEqual("今日已领取", message)
+
+    def test_daily_instance_reset_boundary(self):
+        class FakeDateTime:
+            current = None
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.current
+
+        module = load_functions(
+            "daily_before_reset", datetime=FakeDateTime, CN_TZ=object())
+        for hour, minute, expected in (
+                (0, 0, True), (9, 59, True), (10, 0, False),
+                (10, 5, False), (23, 59, False)):
+            FakeDateTime.current = type(
+                "Now", (), {"hour": hour, "minute": minute})()
+            self.assertEqual(expected, module["daily_before_reset"]())
 
     def test_campaign_daily_classification_matrix(self):
         module = load_functions(

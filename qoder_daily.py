@@ -1088,6 +1088,11 @@ def daily_window_active():
     return now.hour == 10
 
 
+def daily_before_reset():
+    """Today's Qoder reward instance starts at 10:00 UTC+8."""
+    return datetime.now(CN_TZ).hour < 10
+
+
 def validate_campaign_rows(rows):
     ids = set()
     for row in rows:
@@ -1199,6 +1204,11 @@ def do_checkin(account):
     claim = claim_campaign(account, campaign_id)
     verdict, amount, verdict_message = claim_response_verdict(claim)
     if verdict == "already":
+        if daily_before_reset():
+            return False, (
+                "今日奖励实例 10:00（UTC+8）才刷新；当前返回的是上一实例的"
+                "已领回放，请在 10:05 后重跑"
+            )
         return False, "今日已领取"
     if verdict != "claimed":
         return False, "领取失败：%s" % verdict_message

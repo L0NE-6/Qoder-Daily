@@ -308,7 +308,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前发布版：`v1.0.17`（2026-11-07，`drt-` 续期媒体类型兼容与 token 原子落盘）。
+- 当前发布版：`v1.0.18`（2026-11-10，Qoder 10:00 日实例切换边界修复）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。
