@@ -717,6 +717,7 @@ class CampaignCoreTests(unittest.TestCase):
                 [row], FakeResponse(), None, ""),
             daily_window_retry_enabled=lambda: False,
             daily_window_active=lambda: False,
+            daily_before_reset=lambda: False,
             claim_campaign=claim,
             json_of=lambda response: response.payload,
         )
@@ -725,31 +726,14 @@ class CampaignCoreTests(unittest.TestCase):
         self.assertIn("100", message)
         self.assertEqual(["batch-daily"], calls)
 
-    def test_daily_replay_before_ten_is_not_reported_as_today_claimed(self):
-        row = {
-            "campaignId": "previous-instance",
-            "campaignKey": "act-previous-instance",
-            "actionType": "CLAIM_BENEFIT",
-            "claimStatus": "CLAIMED",
-            "title": "每日签到",
-            "benefit": {"kind": "CREDITS", "amount": 100},
-        }
+    def test_before_daily_instance_stops_before_http(self):
+        def unexpected(*args, **kwargs):
+            raise AssertionError("before 10:00 must not request campaigns")
+
         module = load_functions(
-            "first_text", "amount_of", "campaign_benefit",
-            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
-            "campaign_is_daily", "campaign_is_active", "campaign_id_of",
-            "pick_daily_campaign", "claim_response_verdict", "do_checkin",
-            ONE_DAY_MS=24 * 60 * 60 * 1000,
-            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
-            CLAIM_FAILURE_TEXT={},
-            fetch_campaign_rows=lambda account: (
-                [row], FakeResponse(), None, ""),
-            daily_window_retry_enabled=lambda: False,
-            daily_window_active=lambda: False,
+            "do_checkin",
             daily_before_reset=lambda: True,
-            claim_campaign=lambda account, campaign_id: FakeResponse(
-                200, {"status": "CLAIMED", "replayed": True}),
-            json_of=lambda response: response.payload,
+            fetch_campaign_rows=unexpected,
         )
         ok, message = module["do_checkin"]({"region": "cn"})
         self.assertFalse(ok)
@@ -961,6 +945,7 @@ class CampaignCoreTests(unittest.TestCase):
             fetch_campaign_rows=fetch_rows,
             daily_window_retry_enabled=lambda: True,
             daily_window_active=lambda: True,
+            daily_before_reset=lambda: False,
             _env=lambda name: {"QODER_WINDOW_RETRY_MAX": "2",
                                "QODER_WINDOW_RETRY_GAP": "1"}.get(name, ""),
             log=lambda message: None,
@@ -1095,6 +1080,7 @@ class CampaignCoreTests(unittest.TestCase):
                 [], FakeResponse(), "本机没有 Qoder CN 的 UMID 组件", ""),
             pick_daily_campaign=lambda rows: (None, False),
             daily_window_retry_enabled=lambda: False,
+            daily_before_reset=lambda: False,
             region_key=lambda region: "cn" if region == "cn" else "global",
         )
         ok, message = module["do_checkin"]({"region": "cn"})

@@ -1156,6 +1156,11 @@ def claim_campaign(account, campaign_id):
 
 
 def do_checkin(account):
+    if daily_before_reset():
+        return False, (
+            "Qoder 今日奖励实例 10:00（UTC+8）才刷新，"
+            "当前不会请求上一实例；请在 10:05 后重跑"
+        )
     rows, response, risk_note, error = fetch_campaign_rows(account)
     if error:
         return False, error
@@ -1204,11 +1209,6 @@ def do_checkin(account):
     claim = claim_campaign(account, campaign_id)
     verdict, amount, verdict_message = claim_response_verdict(claim)
     if verdict == "already":
-        if daily_before_reset():
-            return False, (
-                "今日奖励实例 10:00（UTC+8）才刷新；当前返回的是上一实例的"
-                "已领回放，请在 10:05 后重跑"
-            )
         return False, "今日已领取"
     if verdict != "claimed":
         return False, "领取失败：%s" % verdict_message
