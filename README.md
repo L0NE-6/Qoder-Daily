@@ -54,11 +54,13 @@
 - **双地区签到**：中国版请求 Qoder CN，国际版请求 `openapi.qoder.sh`。
 - **地区隔离设备身份**：中国版读取 Qoder CN / `qoderclicn`，国际版读取 Qoder / `qodercli`；客户端组件使用环境 `3`，CLI / 下载组件使用环境 `4`。
 - **国际版 UID 两段拉取**：先无风控头读取活动列表 UID，再生成对应 UMID 身份并二次拉取。
+- **每日活动语义分类**：按 Credits、标题和模型作用域识别签到，排除 Sonus、SOTA 与限定模型权益。
 - **开窗补拉**：默认在北京时间 10:00-11:00 内每 10 分钟检查，最多 6 次。
 - **Token 轮换恢复**：refresh_token 轮换后写入本地状态；Actions 可再用 `QODER_CACHE_KEY` 加密缓存。
 - **额度类 403 分流**：区分额度耗尽、每日计费上限和真实登录失效。
 - **Pro 活动谨慎领取**：只在 campaigns 实际发现或只读 reward 核对面值后才 claim。
-- **多账号与推送**：支持中国版 / 国际版混合账号，以及 PushPlus、Bark、企业微信、钉钉和青龙通知。
+- **claim 地区差异**：国际版使用完整设备风控头 + JSON body；中国版沿用最小鉴权头 + 空 body，避免触发 503。
+- **多账号与推送**：支持中国版 / 国际版混合账号，以及 PushPlus、Bark、企业微信、钉钉和青龙通知；同一设备身份下每日只允许一个账号领取，其余账号按 blocked 报告。
 
 ## 🧩 工作流程
 
@@ -66,7 +68,7 @@
 读取 Token
   → 按地区选择官方端点与 UMID 身份
   → 获取 campaigns
-  → 筛选 CLAIM_BENEFIT
+  → 识别每日 CLAIM_BENEFIT / CREDITS 活动
   → claim
   → 读取额度 / 使用量复核
   → 轮换并保存 refresh_token
@@ -148,6 +150,19 @@ schedule:
 
 该 cron 使用 UTC，对应北京时间每天 10:05。Fork 后若 scheduled workflow 默认停用，需要在 Actions 页面启用；GitHub 的 schedule 只从默认分支运行。
 
+### 多账号：账号2 用独立工作流
+
+同一台机器上多个账号只能领一个，最省事的隔离方式是让账号2 跑在独立的云端 runner 上。仓库内置 [`.github/workflows/account2.yml`](.github/workflows/account2.yml)：
+
+| 项目 | 说明 |
+| :--- | :--- |
+| Secret | `QODER_GLOBAL_TOKENS_2` 存账号2 的 `备注\|dt-...\|drt-...`；`QODER_CACHE_KEY` 可与其他工作流复用。 |
+| 缓存 | 独立前缀 `qoder-account2-state-v2-`，持久化账号2 自己的 `qoder_machine_id` 与轮换 Token。 |
+| 运行 | `python qoder_daily.py --only 1`（该工作流里只有账号2 一个账号）。 |
+| 定时 | 默认启用，每天北京时间 10:05；也可在 Actions 页手动 Run workflow。 |
+
+工作流刻意不注入 `QODER_MACHINE_*` / `QODER_RUNTIME_INFO` / `QODER_UMID_*`，否则会复用账号1 的设备身份，正好触发同设备限领。首次运行会生成账号2 自己的设备标识，之后依赖 cache 保持不变；清理 cache 等于换设备。
+
 ### Actions 中的重试覆盖
 
 脚本默认值为：
@@ -225,9 +240,11 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📊 签到与额度语义
 
-- `CLAIM_BENEFIT` 活动实际下发后才能领取。
+- 只有语义分类为每日签到的活动实际下发后才能领取；限定模型、Sonus、SOTA 与已结束活动不会自动领取。
 - 中国版完整设备头返回空列表时，只在成功响应明确为空或 `showCampaign:false` 的情况下，用四件套最小鉴权头复取一次。
 - 国际版不启用该最小头复取。
+- 国际版 claim 需要完整设备风控头和 JSON body；最小鉴权头 + 空 body 会返回 `409 INTERNAL_ERROR`。
+- 同一设备身份下当日已有其他账号领取时，claim 返回 `200 + status=BLOCKED`、`failureCode=SAME_PERSON_ALREADY_CLAIMED`，脚本报告“同一设备身份下的其他账号已领取”，不计为成功。
 - 领取成功后按上游活动数据报告 Credits；实际额度变化可从 usage / quota 路径核对时再报告增量。
 - Pro 活动只在 campaigns 中真实出现或 `/reward` 只读核对面值后才尝试，不承诺固定 `+1800`。
 - 窗口未开、身份缺失或没有活动行时不写入“已签”状态，后续轮次可继续补拉。
@@ -239,6 +256,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 | 业务码 `112` 或响应含 `pricingUrl` | 按额度耗尽处理，冷却约 30 分钟，不触发 Token 续期。 |
 | 业务码 `110` / `Billing daily count exceeded` | 按每日计费上限处理，冷却到本地零点，封顶 6 小时。 |
 | 非额度类 401 / 403、业务码 `105` / `10019901001` | 尝试用 refresh_token 续期一次并重试。 |
+| claim 返回 `SAME_PERSON_ALREADY_CLAIMED`（HTTP 200，`status=BLOCKED`） | 同一设备身份下其他账号当天已领取；按 blocked 报告，不重试、不换账号重放。 |
 | 普通 429 / 5xx | 按上游错误报告，不伪装成成功。 |
 
 ## 🗂️ 数据文件与状态
@@ -288,6 +306,14 @@ QODER_WINDOW_RETRY_GAP: "90"
 </details>
 
 <details>
+<summary><b>同一台电脑上多个账号，为什么只有一个能领</b></summary>
+
+上游按设备身份限额：同一台机器上的账号共用 `qoder_machine_id`、UMID 组件生成的 `machineCode` 与主机名，当天第一个账号领取后，其他账号的 claim 会返回 `200 + status=BLOCKED`、`failureCode=SAME_PERSON_ALREADY_CLAIMED`，每日活动行也可能被隐藏。
+
+要分别领取，需要让账号使用不同的设备身份：换一台电脑，或在手机客户端领取另一个账号；也可以每天只让其中一个账号在本机先领。不建议在脚本里伪造或轮换设备标识来绕过限制。
+</details>
+
+<details>
 <summary><b>HTTP 403 是否一定是登录失效</b></summary>
 
 不是。`112` / `pricingUrl` 与 `110` 分别代表额度耗尽和每日计费上限。只有非额度类 401 / 403 或 `105` / `10019901001` 才进入续期路径。
@@ -307,7 +333,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前发布版：`v1.0.14`（2026-11-06，国际版 UID 与 UMID 两段拉取修复）。
+- 当前发布版：`v1.0.19`（2026-11-10，Qoder 10:00 前零请求拦截）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。

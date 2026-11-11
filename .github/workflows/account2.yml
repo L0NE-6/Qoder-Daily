@@ -1,0 +1,99 @@
+name: Qoder Daily (Account 2)
+
+# 账号2 专用工作流：与 daily.yml 使用不同的 runner、缓存前缀和 secret，
+# 从而获得独立的设备身份（qoder_machine_id），避免与账号1 触发同设备限领。
+#
+# 首次使用：
+#   1. Settings -> Secrets and variables -> Actions 新建：
+#        QODER_GLOBAL_TOKENS_2 = 备注|dt-...|drt-...
+#        QODER_CACHE_KEY      = 任意长随机串（加密持久化设备身份，可与其他工作流复用）
+#   2. 本工作流每天北京时间 10:05 自动运行，也可在 Actions 页手动 Run workflow。
+#
+# 注意：这里刻意不注入 QODER_MACHINE_* / QODER_RUNTIME_INFO / QODER_UMID_*，
+# 否则会复用账号1 的设备身份，正好触发同设备限领。
+
+on:
+  schedule:
+    - cron: "5 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: Qoder-Daily-Account2
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Shanghai
+      QODER_CACHE_KEY: ${{ secrets.QODER_CACHE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Warn missing cache encryption key
+        if: ${{ env.QODER_CACHE_KEY == '' }}
+        run: |
+          echo "::warning::未设置 QODER_CACHE_KEY，本次将跳过设备身份持久化；每次运行都会是新设备，同设备限领风险更高。"
+
+      - name: Restore encrypted account2 state
+        if: ${{ env.QODER_CACHE_KEY != '' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .qoder-cache/state.enc
+          key: qoder-account2-state-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: qoder-account2-state-v2-
+
+      - name: Decrypt account2 state
+        if: ${{ env.QODER_CACHE_KEY != '' && hashFiles('.qoder-cache/state.enc') != '' }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -salt -pass env:QODER_CACHE_KEY -in .qoder-cache/state.enc -out "$RUNNER_TEMP/qoder-state.tar"
+          tar -xf "$RUNNER_TEMP/qoder-state.tar" -C .
+          rm -f "$RUNNER_TEMP/qoder-state.tar"
+
+      - name: Run Qoder Daily (account 2)
+        env:
+          QODER_GLOBAL_TOKENS: ${{ secrets.QODER_GLOBAL_TOKENS_2 }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          BARK_URL: ${{ secrets.BARK_URL }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          QODER_WINDOW_RETRY: "1"
+          QODER_WINDOW_RETRY_MAX: "16"
+          QODER_WINDOW_RETRY_GAP: "90"
+        run: python qoder_daily.py --only 1
+
+      # Refresh may succeed before a later request fails; retain rotated tokens.
+      - name: Encrypt account2 state
+        if: ${{ always() && env.QODER_CACHE_KEY != '' }}
+        run: |
+          mkdir -p .qoder-cache
+          files=""
+          for f in qoder_tokens.json qoder_machine_id; do
+            if [ -f "$f" ]; then files="$files $f"; fi
+          done
+          if [ -n "$files" ]; then
+            tar -cf "$RUNNER_TEMP/qoder-state.tar" $files
+            openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:QODER_CACHE_KEY -in "$RUNNER_TEMP/qoder-state.tar" -out .qoder-cache/state.enc
+            rm -f "$RUNNER_TEMP/qoder-state.tar"
+          fi
+
+      - name: Save encrypted account2 state
+        if: ${{ always() && env.QODER_CACHE_KEY != '' && hashFiles('.qoder-cache/state.enc') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .qoder-cache/state.enc
+          key: qoder-account2-state-v2-${{ github.run_id }}-${{ github.run_attempt }}

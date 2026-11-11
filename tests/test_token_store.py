@@ -36,6 +36,12 @@ class TokenStoreTests(unittest.TestCase):
             daily.refresh_account(account)
         self.assertTrue(request.call_args.args[1].endswith(daily.DEVICE_REFRESH_PATH))
 
+    def response(self, status, payload, text=None):
+        response = Mock(status_code=status)
+        response.json.return_value = payload
+        response.text = text if text is not None else json.dumps(payload)
+        return response
+
     def test_unchanged_environment_restores_after_two_rotations(self):
         for generation in (1, 2):
             current = self.account()
@@ -106,6 +112,100 @@ class TokenStoreTests(unittest.TestCase):
         self.assertNotIn(original_access, contents)
         self.assertNotIn(original_refresh, contents)
         self.assertTrue(all(len(key) == 16 for key in json.loads(contents)))
+
+    def test_drt_http_415_retries_once_with_form_and_persists_rotation(self):
+        current = self.account()
+        responses = [
+            self.response(415, {'rawMessage': 'Unsupported Media Type'}),
+            self.response(200, {
+                'device_token': 'dt-form',
+                'refresh_token': 'drt-form',
+            }),
+        ]
+        with patch.object(daily, 'request', side_effect=responses) as request:
+            self.assertTrue(daily.refresh_account(current))
+
+        self.assertEqual(2, request.call_count)
+        first, second = request.call_args_list
+        self.assertEqual(
+            {'refresh_token': 'drt-primary-original'}, first.kwargs['body'])
+        self.assertNotIn('body', second.kwargs)
+        self.assertEqual(
+            {'refresh_token': 'drt-primary-original'}, second.kwargs['form'])
+        self.assertEqual(
+            'application/x-www-form-urlencoded',
+            second.kwargs['headers']['Content-Type'])
+        self.assertEqual('dt-form', current['access'])
+        self.assertEqual('drt-form', current['refresh'])
+
+        next_run = self.account()
+        self.assertTrue(daily.apply_store(next_run))
+        self.assertEqual('dt-form', next_run['access'])
+        self.assertEqual('drt-form', next_run['refresh'])
+
+    def test_drt_wrapped_http_400_code_415_retries_with_form(self):
+        current = self.account()
+        wrapped = {
+            'errorCode': 'BadRequest',
+            'errorMessage': 'Bad request',
+            'rawMessage': 'code=415, message=Unsupported Media Type',
+        }
+        responses = [
+            self.response(400, wrapped),
+            self.response(200, {'device_token': 'dt-wrapped'}),
+        ]
+        with patch.object(daily, 'request', side_effect=responses) as request:
+            self.assertTrue(daily.refresh_account(current))
+
+        self.assertEqual(2, request.call_count)
+        self.assertEqual(
+            {'refresh_token': 'drt-primary-original'},
+            request.call_args_list[1].kwargs['form'])
+        self.assertEqual('dt-wrapped', current['access'])
+
+    def test_plain_http_400_does_not_switch_to_form(self):
+        current = self.account()
+        failure = self.response(400, {'errorCode': 'BadRequest'})
+        with patch.object(daily, 'request', return_value=failure) as request:
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 400'):
+                daily.refresh_account(current)
+
+        self.assertEqual(1, request.call_count)
+        self.assertEqual('dt-primary-original', current['access'])
+        self.assertEqual('drt-primary-original', current['refresh'])
+
+    def test_jrt_http_415_does_not_use_unproven_form_shape(self):
+        current = self.account()
+        current['refresh'] = 'jrt-primary-original'
+        failure = self.response(415, {'rawMessage': 'Unsupported Media Type'})
+        with patch.object(daily, 'request', return_value=failure) as request:
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 415'):
+                daily.refresh_account(current)
+
+        self.assertEqual(1, request.call_count)
+        self.assertTrue(request.call_args.args[1].endswith(daily.JOB_REFRESH_PATH))
+        self.assertEqual('dt-primary-original', current['access'])
+
+    def test_refresh_persist_failure_is_not_reported_as_success(self):
+        current = self.account()
+        success = self.response(200, {
+            'device_token': 'dt-new',
+            'refresh_token': 'drt-new',
+        })
+        with patch.object(daily, 'request', return_value=success), \
+                patch.object(daily, 'persist', side_effect=OSError('disk full')):
+            with self.assertRaisesRegex(RuntimeError, '状态写入失败'):
+                daily.refresh_account(current)
+
+        self.assertEqual('dt-primary-original', current['access'])
+        self.assertEqual('drt-primary-original', current['refresh'])
+
+    def test_atomic_store_failure_preserves_existing_file(self):
+        self.store_path.write_text('{"old": true}', encoding='utf-8')
+        with patch.object(daily.os, 'replace', side_effect=OSError('replace failed')):
+            with self.assertRaisesRegex(OSError, 'replace failed'):
+                daily.save_store({'new': True})
+        self.assertEqual('{"old": true}', self.store_path.read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':
