@@ -291,7 +291,12 @@ def machine_os():
 
 
 def machine_hostname():
-    raw = (os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "").strip()
+    raw = (
+        os.environ.get("QODER_MACHINE_HOSTNAME")
+        or os.environ.get("COMPUTERNAME")
+        or os.environ.get("HOSTNAME")
+        or ""
+    ).strip()
     if not raw:
         return ""
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]

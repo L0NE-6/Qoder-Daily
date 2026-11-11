@@ -575,6 +575,25 @@ class CampaignCoreTests(unittest.TestCase):
         self.assertEqual({}, captured["body"])
         self.assertEqual("risk-token", captured["headers"]["Cosy-MachineToken"])
 
+    def test_machine_hostname_explicit_override_and_hostname_fallback(self):
+        module = load_functions(
+            "machine_hostname",
+            os=__import__("types").SimpleNamespace(environ={
+                "QODER_MACHINE_HOSTNAME": "qoder-account2-actions",
+                "HOSTNAME": "runner-dynamic-host",
+            }),
+            hashlib=__import__("hashlib"),
+        )
+        self.assertEqual("qoder-account2-actions", module["machine_hostname"]())
+
+        module = load_functions(
+            "machine_hostname",
+            os=__import__("types").SimpleNamespace(
+                environ={"HOSTNAME": "runner-dynamic-host"}),
+            hashlib=__import__("hashlib"),
+        )
+        self.assertEqual("runner-dynamic-host", module["machine_hostname"]())
+
     def test_discover_pro_uses_hidden_reward_probe(self):
         rows = [
             {"campaignId": "daily", "campaignKey": "act-daily",

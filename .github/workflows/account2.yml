@@ -9,8 +9,10 @@ name: Qoder Daily (Account 2)
 #        QODER_CACHE_KEY      = 任意长随机串（加密持久化设备身份，可与其他工作流复用）
 #   2. 本工作流每天北京时间 10:05 自动运行，也可在 Actions 页手动 Run workflow。
 #
-# 注意：这里刻意不注入 QODER_MACHINE_* / QODER_RUNTIME_INFO / QODER_UMID_*，
-# 否则会复用账号1 的设备身份，正好触发同设备限领。
+# 注意：这里刻意不注入 QODER_MACHINE_TOKEN / MACHINE_CODE / MACHINE_TYPE，
+# 也不注入 QODER_RUNTIME_INFO / QODER_UMID_*；否则会复用账号1 的设备身份。
+# 工作流固定账号2 专用 HOSTNAME，并由 QODER_MACHINE_HOSTNAME 明确覆盖，
+# 避免 GitHub hosted runner 的主机名逐次变化。
 
 on:
   schedule:
@@ -31,6 +33,8 @@ jobs:
     env:
       TZ: Asia/Shanghai
       QODER_CACHE_KEY: ${{ secrets.QODER_CACHE_KEY }}
+      HOSTNAME: qoder-account2-actions
+      QODER_MACHINE_HOSTNAME: qoder-account2-actions
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -1,11 +1,18 @@
 # 更新日志
 
+## v1.0.21（2026-11-11）
+
+- 账号 2 工作流固定专用主机名 `qoder-account2-actions`，避免 GitHub hosted runner 每次使用不同主机名。
+- `machine_hostname()` 新增 `QODER_MACHINE_HOSTNAME` 专用覆盖，优先级高于 `COMPUTERNAME` / `HOSTNAME`，防止 Bash 重设环境变量后丢失隔离值。
+- README 修正设备身份边界：独立 cache 稳定的是 `qoder_machine_id` 与轮换 Token；官方 UMID 组件生成的 `machineToken` / `machineCode` / `machineType` 仍可能按上游策略变化。
+- 新增主机名覆盖与回落回归，全套 `55` 项测试通过。
+
 ## v1.0.20（2026-11-11）
 
 - 合并外部 PR #6 的净增量：国际版每日 claim 改用完整设备风控头与 JSON `{}`，修复最小鉴权头 + 空 body 返回 `409 INTERNAL_ERROR` 的问题。
 - 中国版 claim 继续使用最小鉴权头和空 body，避免重新触发 `503 RISK_DEPENDENCY_UNAVAILABLE`。
-- 新增账号 2 独立 Actions 工作流：独立 `QODER_GLOBAL_TOKENS_2`、独立缓存前缀和独立 runner 设备身份，不覆盖账号 1 的 `qoder_tokens.json` / `qoder_machine_id`。
-- 保留 v1.0.19 的 10:00（UTC+8）前零 HTTP 行为；补充分地区 claim 请求形态回归，全套 `54` 项测试通过。
+- 新增账号 2 独立 Actions 工作流：独立 `QODER_GLOBAL_TOKENS_2`、独立缓存前缀、独立 `qoder_tokens.json` / `qoder_machine_id`，并固定账号 2 专用主机名，不覆盖账号 1 的设备状态。
+- 保留 v1.0.19 的 10:00（UTC+8）前零 HTTP 行为；补充分地区 claim 请求形态与主机名覆盖回归，全套 `55` 项测试通过。
 
 ## v1.0.19（2026-11-10）
 

@@ -158,10 +158,11 @@ schedule:
 | :--- | :--- |
 | Secret | `QODER_GLOBAL_TOKENS_2` 存账号2 的 `备注\|dt-...\|drt-...`；`QODER_CACHE_KEY` 可与其他工作流复用。 |
 | 缓存 | 独立前缀 `qoder-account2-state-v2-`，持久化账号2 自己的 `qoder_machine_id` 与轮换 Token。 |
+| 主机名 | 工作流固定 `HOSTNAME=qoder-account2-actions`，并设置 `QODER_MACHINE_HOSTNAME` 明确覆盖；账号1 不使用该专用值。 |
 | 运行 | `python qoder_daily.py --only 1`（该工作流里只有账号2 一个账号）。 |
 | 定时 | 默认启用，每天北京时间 10:05；也可在 Actions 页手动 Run workflow。 |
 
-工作流刻意不注入 `QODER_MACHINE_*` / `QODER_RUNTIME_INFO` / `QODER_UMID_*`，否则会复用账号1 的设备身份，正好触发同设备限领。首次运行会生成账号2 自己的设备标识，之后依赖 cache 保持不变；清理 cache 等于换设备。
+工作流刻意不注入 `QODER_MACHINE_TOKEN` / `QODER_MACHINE_CODE` / `QODER_MACHINE_TYPE`，也不注入 `QODER_RUNTIME_INFO` / `QODER_UMID_*`，否则会复用账号1 的设备身份。首次运行会生成账号2 自己的 `qoder_machine_id`，后续由独立 cache 恢复；主机名固定为 `qoder-account2-actions`。官方 UMID 生成的 `machineToken` / `machineCode` / `machineType` 仍由组件按账号与运行环境产生，可能随上游策略轮换，不能把 cache 理解为整套设备指纹永久不变。
 
 ### Actions 中的重试覆盖
 
@@ -310,7 +311,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 上游按设备身份限额：同一台机器上的账号共用 `qoder_machine_id`、UMID 组件生成的 `machineCode` 与主机名，当天第一个账号领取后，其他账号的 claim 会返回 `200 + status=BLOCKED`、`failureCode=SAME_PERSON_ALREADY_CLAIMED`，每日活动行也可能被隐藏。
 
-要分别领取，需要让账号使用不同的设备身份：换一台电脑，或在手机客户端领取另一个账号；也可以使用该独立工作流，让账号2 在单独的 GitHub Actions runner 上运行。不建议在脚本里伪造或轮换设备标识来绕过限制。
+要分别领取，需要让账号使用不同的设备身份：换一台电脑，或在手机客户端领取另一个账号；也可以使用该独立工作流，让账号2 在单独的 GitHub Actions runner 上运行。账号2 工作流固定使用 `qoder-account2-actions` 主机名，账号1 不设置该专用值。不建议在脚本里伪造或轮换设备标识来绕过限制。
 </details>
 
 <details>
@@ -333,7 +334,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前发布版：`v1.0.20`（2026-11-11，国际版 claim 风控头修复与账号 2 独立工作流）。
+- 当前发布版：`v1.0.21`（2026-11-11，账号 2 固定主机名与设备身份边界修正）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。
