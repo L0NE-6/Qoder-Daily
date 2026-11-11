@@ -5,3 +5,11 @@ qoder_tokens.json
 qoder_machine_id
 .qoder-cache/
 qoder_umid/
+
+# local helper dirs
+.pylibs/
+.pytmp/
+.tools/
+
+
+.secrets/

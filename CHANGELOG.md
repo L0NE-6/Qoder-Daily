@@ -1,5 +1,12 @@
 # 更新日志
 
+## v1.0.20（2026-11-11）
+
+- 合并外部 PR #6 的净增量：国际版每日 claim 改用完整设备风控头与 JSON `{}`，修复最小鉴权头 + 空 body 返回 `409 INTERNAL_ERROR` 的问题。
+- 中国版 claim 继续使用最小鉴权头和空 body，避免重新触发 `503 RISK_DEPENDENCY_UNAVAILABLE`。
+- 新增账号 2 独立 Actions 工作流：独立 `QODER_GLOBAL_TOKENS_2`、独立缓存前缀和独立 runner 设备身份，不覆盖账号 1 的 `qoder_tokens.json` / `qoder_machine_id`。
+- 保留 v1.0.19 的 10:00（UTC+8）前零 HTTP 行为；补充分地区 claim 请求形态回归，全套 `54` 项测试通过。
+
 ## v1.0.19（2026-11-10）
 
 - 收紧 v1.0.18 的 10:00 实例边界：09:59:59 前直接停止，不再请求 campaigns，也不再对上一实例发送幂等 claim。

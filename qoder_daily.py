@@ -9,7 +9,8 @@
    2. 按 CLAIM_BENEFIT / CREDITS / 标题 / modelScope 识别唯一的每日签到活动
    3. POST /sash/api/v1/me/campaigns/{campaignId}/claim  领取 credits
    4. 活跃每日行的 CLAIMED 只作候选；幂等重发 claim，由 replayed 区分已领与本次真领
-   5. claim 使用最小鉴权头和空 body，避免完整设备头触发 503 风控
+   5. claim：中国版使用最小鉴权头和空 body（避免 503 风控）；国际版使用完整设备头
+      和 JSON body（上游 2026-11 起要求，最小头 + 空 body 会回 409 INTERNAL_ERROR）
    6. Pro 升级包：从 campaigns 中发现，GET /reward 只读核实面值后再 claim
 
    中国版和国际版（每日 100 Credits）的活动只下发给带对应官方设备身份的请求
@@ -1150,9 +1151,14 @@ def pick_daily_campaign(rows):
 
 
 def claim_campaign(account, campaign_id):
+    url = "%s%s/%s/claim" % (account["base"], CAMPAIGNS_PATH, campaign_id)
+    if region_key(account.get("region", "cn")) == "global":
+        # 国际版上游已要求完整设备风控头和 JSON body；最小头 + 空 body 会回 409
+        # INTERNAL_ERROR（2026-11 实测）。中国版仍沿用最小头，避免 503 风控。
+        headers, _note = risky_sash_headers(account, account.get("uid", ""))
+        return request("POST", url, headers=headers, body={})
     headers = minimal_sash_headers(account["access"])
-    return request("POST", "%s%s/%s/claim" % (account["base"], CAMPAIGNS_PATH, campaign_id),
-                   headers=headers, body=None)
+    return request("POST", url, headers=headers, body=None)
 
 
 def do_checkin(account):

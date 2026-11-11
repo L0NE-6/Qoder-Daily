@@ -530,7 +530,7 @@ class CampaignCoreTests(unittest.TestCase):
             return FakeResponse()
 
         module = load_functions(
-            "claim_campaign", "minimal_sash_headers",
+            "claim_campaign", "minimal_sash_headers", "region_key",
             CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
             SASH_CLIENT_TYPE="qoder", SASH_USER_AGENT="test-agent",
             request=request,
@@ -551,6 +551,29 @@ class CampaignCoreTests(unittest.TestCase):
                 "content-type": "application/json",
             },
             captured["headers"])
+
+    def test_claim_campaign_global_uses_risk_headers_and_json_body(self):
+        captured = {}
+
+        def request(method, url, headers=None, body=None, **_kwargs):
+            captured.update({"headers": headers, "body": body})
+            return FakeResponse()
+
+        module = load_functions(
+            "claim_campaign", "region_key",
+            CAMPAIGNS_PATH="/sash/api/v1/me/campaigns",
+            minimal_sash_headers=lambda token: {"authorization": "Bearer %s" % token},
+            risky_sash_headers=lambda account, uid="": (
+                {"authorization": "Bearer %s" % account["access"],
+                 "Cosy-MachineToken": "risk-token"}, None),
+            request=request,
+        )
+        module["claim_campaign"](
+            {"base": "https://example.test", "access": "access-token",
+             "region": "global", "uid": "user-1"}, "daily-1")
+
+        self.assertEqual({}, captured["body"])
+        self.assertEqual("risk-token", captured["headers"]["Cosy-MachineToken"])
 
     def test_discover_pro_uses_hidden_reward_probe(self):
         rows = [
