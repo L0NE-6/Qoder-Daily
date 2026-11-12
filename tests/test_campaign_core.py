@@ -38,6 +38,11 @@ class FakeResponse:
         return self.payload
 
 
+def _quota_sequence(values):
+    remaining = iter(values)
+    return lambda account: next(remaining)
+
+
 class CampaignCoreTests(unittest.TestCase):
     def test_campaigns_url_keeps_official_cache_behavior(self):
         captured = {}
@@ -520,6 +525,29 @@ class CampaignCoreTests(unittest.TestCase):
                 FakeResponse(status, payload))
             self.assertEqual(expected, verdict, payload)
 
+    def test_quota_readback_sums_all_remaining_buckets(self):
+        payload = {
+            "userQuota": {"remaining": 100},
+            "addOnQuota": {"remaining": 50},
+            "dedicatedResourcePackages": [{"remaining": 25}, {"remaining": 5}],
+            "orgResourcePackage": {"remaining": 20},
+        }
+        module = load_functions(
+            "quota_total_remaining",
+            QUOTA_USAGE_PATH="/api/v2/quota/usage",
+            risky_sash_headers=lambda account, uid="": ({}, None),
+            request=lambda method, url, headers=None, retries=1: FakeResponse(
+                200, payload),
+            json_of=lambda response: response.payload,
+            amount_of=lambda value: float(value),
+        )
+        self.assertEqual(
+            200.0,
+            module["quota_total_remaining"](
+                {"base": "https://example.test", "uid": "user-1"},
+            ),
+        )
+
     def test_claim_campaign_uses_minimal_headers_and_empty_body(self):
         captured = {}
 
@@ -753,20 +781,98 @@ class CampaignCoreTests(unittest.TestCase):
             "campaign_is_daily", "campaign_is_active", "campaign_id_of",
             "pick_daily_campaign", "claim_response_verdict", "do_checkin",
             ONE_DAY_MS=24 * 60 * 60 * 1000,
-            datetime=datetime, CN_TZ=None, math=__import__("math"), time=time,
+            datetime=datetime, CN_TZ=None, math=__import__("math"),
             CLAIM_FAILURE_TEXT={},
             fetch_campaign_rows=lambda account: (
                 [row], FakeResponse(), None, ""),
             daily_window_retry_enabled=lambda: False,
             daily_window_active=lambda: False,
             daily_before_reset=lambda: False,
+            quota_total_remaining=_quota_sequence([100, 200]),
             claim_campaign=claim,
             json_of=lambda response: response.payload,
+            time=type("Time", (), {
+                "sleep": staticmethod(lambda seconds: None),
+                "time": staticmethod(time.time),
+            }),
         )
         ok, message = module["do_checkin"]({"region": "cn"})
         self.assertTrue(ok)
-        self.assertIn("100", message)
+        self.assertIn("+100", message)
+        self.assertIn("100 → 200", message)
         self.assertEqual(["batch-daily"], calls)
+
+    def test_daily_claim_is_pending_without_quota_increase(self):
+        row = {
+            "campaignId": "daily-pending",
+            "campaignKey": "act-daily-pending",
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": "CLAIMABLE",
+            "title": "每日签到",
+            "benefit": {"kind": "CREDITS", "amount": 100},
+        }
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "campaign_id_of",
+            "pick_daily_campaign", "claim_response_verdict", "do_checkin",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"),
+            time=type("Time", (), {
+                "sleep": staticmethod(lambda seconds: None),
+                "time": staticmethod(time.time),
+            }),
+            CLAIM_FAILURE_TEXT={},
+            fetch_campaign_rows=lambda account: (
+                [row], FakeResponse(), None, ""),
+            daily_window_retry_enabled=lambda: False,
+            daily_window_active=lambda: False,
+            daily_before_reset=lambda: False,
+            quota_total_remaining=_quota_sequence([1200, 1200]),
+            claim_campaign=lambda account, campaign_id: FakeResponse(
+                200, {"status": "CLAIMED", "replayed": False}),
+            json_of=lambda response: response.payload,
+        )
+        ok, message = module["do_checkin"]({"region": "cn"})
+        self.assertFalse(ok)
+        self.assertIn("待确认", message)
+        self.assertIn("1200 → 1200", message)
+
+    def test_daily_claim_is_pending_when_quota_readback_is_unavailable(self):
+        row = {
+            "campaignId": "daily-unreadable",
+            "campaignKey": "act-daily-unreadable",
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": "CLAIMABLE",
+            "title": "每日签到",
+            "benefit": {"kind": "CREDITS", "amount": 100},
+        }
+        module = load_functions(
+            "first_text", "amount_of", "campaign_benefit",
+            "campaign_title", "campaign_time_ms", "campaign_scope_is_limited",
+            "campaign_is_daily", "campaign_is_active", "campaign_id_of",
+            "pick_daily_campaign", "claim_response_verdict", "do_checkin",
+            ONE_DAY_MS=24 * 60 * 60 * 1000,
+            datetime=datetime, CN_TZ=None, math=__import__("math"),
+            time=type("Time", (), {
+                "sleep": staticmethod(lambda seconds: None),
+                "time": staticmethod(time.time),
+            }),
+            CLAIM_FAILURE_TEXT={},
+            fetch_campaign_rows=lambda account: (
+                [row], FakeResponse(), None, ""),
+            daily_window_retry_enabled=lambda: False,
+            daily_window_active=lambda: False,
+            daily_before_reset=lambda: False,
+            quota_total_remaining=lambda account: None,
+            claim_campaign=lambda account, campaign_id: FakeResponse(
+                200, {"status": "CLAIMED", "replayed": False}),
+            json_of=lambda response: response.payload,
+        )
+        ok, message = module["do_checkin"]({"region": "cn"})
+        self.assertFalse(ok)
+        self.assertIn("待确认", message)
+        self.assertIn("100 credits", message)
 
     def test_before_daily_instance_stops_before_http(self):
         def unexpected(*args, **kwargs):
@@ -998,13 +1104,14 @@ class CampaignCoreTests(unittest.TestCase):
             claim_campaign=lambda account, campaign_id: FakeResponse(
                 200, {"status": "CLAIMED"}),
             claim_response_verdict=lambda response: ("claimed", 100, "领取成功"),
+            quota_total_remaining=_quota_sequence([0, 100]),
             json_of=lambda response: response.payload,
         )
         ok, message = module["do_checkin"]({"region": "cn"})
         self.assertTrue(ok)
-        self.assertIn("100", message)
+        self.assertIn("+100", message)
         self.assertEqual(2, calls["fetch"])
-        self.assertEqual(1, calls["sleep"])
+        self.assertEqual(2, calls["sleep"])
 
     def test_umid_override_is_region_scoped(self):
         fake_os = type("FakeOS", (), {

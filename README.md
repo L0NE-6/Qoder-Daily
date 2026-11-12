@@ -246,7 +246,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 - 国际版不启用该最小头复取。
 - 国际版 claim 需要完整设备风控头和 JSON body；最小鉴权头 + 空 body 会返回 `409 INTERNAL_ERROR`。
 - 同一设备身份下当日已有其他账号领取时，claim 返回 `200 + status=BLOCKED`、`failureCode=SAME_PERSON_ALREADY_CLAIMED`，脚本报告“同一设备身份下的其他账号已领取”，不计为成功。
-- 领取成功后按上游活动数据报告 Credits；实际额度变化可从 usage / quota 路径核对时再报告增量。
+- 每日 claim 前后读取账户总剩余额度；只有确认额度增加才报告成功，回读不可用或未增加时显示“已受理待确认”。
 - Pro 活动只在 campaigns 中真实出现或 `/reward` 只读核对面值后才尝试，不承诺固定 `+1800`。
 - 窗口未开、身份缺失或没有活动行时不写入“已签”状态，后续轮次可继续补拉。
 
@@ -334,7 +334,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前发布版：`v1.0.21`（2026-11-11，账号 2 固定主机名与设备身份边界修正）。
+- 当前发布版：`v1.0.22`（2026-11-12，每日签到额度前后回读确认）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。
