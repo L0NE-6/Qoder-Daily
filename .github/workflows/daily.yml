@@ -34,10 +34,11 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
-      - name: Warn missing cache encryption key
+      - name: Require cache encryption key
         if: ${{ env.QODER_CACHE_KEY == '' }}
         run: |
-          echo "::warning::未设置 QODER_CACHE_KEY，本次将跳过 token 状态持久化；轮换后的 refresh_token 可能无法在下次运行恢复。"
+          echo "::error::未设置 QODER_CACHE_KEY。Actions 必须配置一个稳定的随机密钥，否则每次干净 runner 都会生成新的设备码，可能触发账号风控。请在 Settings → Secrets 添加 QODER_CACHE_KEY 后重跑。"
+          exit 1
 
       - name: Restore encrypted token state
         if: ${{ env.QODER_CACHE_KEY != '' }}

@@ -137,7 +137,7 @@ access_token|refresh_token
 | :--- | :---: | :--- |
 | `QODER_TOKENS` | 中国版必填 | 中国版账号。 |
 | `QODER_GLOBAL_TOKENS` | 国际版必填 | 国际版账号。 |
-| `QODER_CACHE_KEY` | 建议必填 | 加密 Actions 中 `qoder_tokens.json` 与 `qoder_machine_id` 的随机长字符串。 |
+| `QODER_CACHE_KEY` | Actions 必填 | 加密 Actions 中 `qoder_tokens.json` 与 `qoder_machine_id` 的随机长字符串；未配置时 workflow 会直接失败，不运行账号。 |
 | `QODER_MACHINE_TOKEN` / `QODER_MACHINE_CODE` / `QODER_MACHINE_TYPE` | 条件必填 | 没有本地 runtime-info 时提供设备身份三件套。 |
 | `QODERCN_RUNTIME_INFO` / `QODER_RUNTIME_INFO` / `QODER_UMID_PATH` | ➖ | 分别覆盖中国版 / 国际版 / 通用组件路径。 |
 | `QODER_UMID_NO_INSTALL` | ➖ | 设为 `1` 时禁止从官方包自动提取身份。 |
@@ -190,7 +190,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 - workflow 会把 `qoder_tokens.json` 与 `qoder_machine_id` 打包，用 `QODER_CACHE_KEY` 执行 AES-256-CBC / PBKDF2 加密后写入 Actions cache。
 - 每轮并发的 Action 使用独立 cache key，并通过共同前缀恢复最新状态。
-- 没有 `QODER_CACHE_KEY` 时，workflow 会告警并跳过持久化；本轮仍可签到，但轮换后的 refresh_token 可能无法在下一轮恢复。
+- 没有 `QODER_CACHE_KEY` 时，workflow 会在运行前直接失败，避免设备码漂移和账号风控；不会向账号发起签到请求。先在 Secrets 配好稳定密钥，再重跑。
 - Cache 可能被淘汰或清理；状态丢失且旧 refresh_token 已失效时需要重新授权。
 
 ## 🔧 环境变量
@@ -325,7 +325,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 <details>
 <summary><b>Actions 恢复不到最新 Token</b></summary>
 
-检查 `QODER_CACHE_KEY` 是否配置且跨运行保持一致，cache 是否被清理，以及同一前缀下是否有可恢复状态。没有 cache 时，原始 Secret 中的旧 refresh_token 可能已经失效。
+检查 `QODER_CACHE_KEY` 是否配置且跨运行保持一致，cache 是否被清理，以及同一前缀下是否有可恢复状态。没有 cache 时，原始 Secret 中的旧 refresh_token 可能已经失效；如果上游已经按新设备身份拒绝旧 RT，请用 `qoder_login.py` 重新登录并更新 `QODER_TOKENS`。
 </details>
 
 <details>

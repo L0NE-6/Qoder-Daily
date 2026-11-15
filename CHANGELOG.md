@@ -1,5 +1,11 @@
 # 更新日志
 
+## v1.0.23（2026-11-15）
+
+- Actions 强制要求 `QODER_CACHE_KEY`：未配置时 workflow 在运行前直接失败，不再跳过状态持久化继续运行账号，避免干净 runner 每次生成新设备码并触发风控；
+- README 明确设备码漂移后的恢复步骤：配置稳定 `QODER_CACHE_KEY`，必要时用 `qoder_login.py` 重新登录并更新 `QODER_TOKENS`；
+- 不修改 Python 签到、登录和 token 轮换逻辑。
+
 ## v1.0.22（2026-11-12）
 
 - 每日签到 claim 前后增加账户总剩余额度回读；只有确认额度增加才报告成功。
