@@ -6,7 +6,7 @@
 
 **Qoder 中国版 / 国际版每日奖励领取工具，支持设备授权登录、双地区 UMID、多账号与 Token 轮换恢复。**
 
-> 当前版本：**v1.0.22**（2026-11-13） · 最新更新：每日签到前后回读主额度、加购额度与资源包额度
+> 当前版本：**v1.0.24**（2026-11-17） · 最新更新：登录工具支持系统代理与 `QODER_PROXY`，网络重置时立即给出处理路径
 
 [简体中文](README.md) · [English](docs/README.en.md) · [繁體中文](docs/README.zh-Hant.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md) · [Português (BR)](docs/README.pt-BR.md)
 
@@ -222,6 +222,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 | `QODER_WINDOW_RETRY_MAX` | `6` | 最多尝试次数，脚本内部上限为 6。 |
 | `QODER_WINDOW_RETRY_GAP` | `600` | 两次尝试间隔秒数。 |
 | `QODER_CACHE_KEY` | 无 | 仅 workflow 使用，加密 Actions token 状态。 |
+| `QODER_PROXY` | 系统 / 环境代理 | 仅 `qoder_login.py` 使用；显式指定 `http://` / `https://` 代理，覆盖系统或环境代理。 |
 | `PUSHPLUS_TOKEN` | 无 | PushPlus。 |
 | `BARK_URL` | 无 | Bark。 |
 | `WECOM_WEBHOOK` | 无 | 企业微信群机器人。 |
@@ -297,9 +298,18 @@ QODER_WINDOW_RETRY_GAP: "90"
 </details>
 
 <details>
-<summary><b>授权页打不开或轮询超时</b></summary>
+<summary><b>授权页打不开、轮询超时或连接被重置</b></summary>
 
 重新运行登录工具并确认授权账号正确。中国版使用默认命令，国际版加 `--region global`。
+
+如果日志出现 `ConnectionResetError(10054)` 或“远程主机强迫关闭了一个现有的连接”，通常是本机到 `qoder.com` / `openapi.qoder.sh` 的网络链路被重置。`v1.0.24` 会读取系统与环境代理，也可以显式设置 `QODER_PROXY`：
+
+```powershell
+$env:QODER_PROXY="http://127.0.0.1:7890"
+python qoder_login.py --region global
+```
+
+连续 3 次网络失败后工具会停止轮询并返回非零，不再等到 300 秒超时。
 </details>
 
 <details>
@@ -336,7 +346,7 @@ QODER_WINDOW_RETRY_GAP: "90"
 
 ## 📦 版本与发布
 
-- 当前发布版：`v1.0.22`（2026-11-12，每日签到额度前后回读确认）。
+- 当前发布版：`v1.0.24`（2026-11-17，登录工具代理支持与网络故障快速退出）。
 - 历史版本保留在 [Releases](https://github.com/L0NE-6/Qoder-Daily/releases)。
 - 每个 Release 附带完整包、单文件脚本与 `SHA256SUMS.txt`。
 - 更新记录见 [CHANGELOG.md](CHANGELOG.md)。

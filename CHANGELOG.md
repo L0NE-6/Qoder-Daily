@@ -1,5 +1,12 @@
 # 更新日志
 
+## v1.0.24（2026-11-17）
+
+- `qoder_login.py` 不再禁用环境代理，默认读取系统 / `HTTP_PROXY` / `HTTPS_PROXY` 配置。
+- 新增 `QODER_PROXY` 显式代理覆盖，解决直连 `qoder.com` / `openapi.qoder.sh` 被重置时无法完成设备授权轮询的问题。
+- `ConnectionResetError(10054)` 等传输错误现在附带代理设置提示；连续 3 次网络失败立即退出，不再空等到 300 秒超时。
+- 新增登录代理、环境代理和网络重置提示回归测试；签到、Token 轮换与 Actions 缓存逻辑未变更。
+
 ## v1.0.23（2026-11-15）
 
 - Actions 强制要求 `QODER_CACHE_KEY`：未配置时 workflow 在运行前直接失败，不再跳过状态持久化继续运行账号，避免干净 runner 每次生成新设备码并触发风控；
